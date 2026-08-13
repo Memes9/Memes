@@ -21,7 +21,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import confluence, db, risk
+from . import confluence, db, laol_adapter, risk
 from .models import AccountReport, ExecReport, TVSignal
 
 load_dotenv()
@@ -79,7 +79,11 @@ async def tradingview_webhook(request: Request):
         "INSERT INTO signals(ts, source, raw, symbol, action, status) VALUES (?,?,?,?,?,?)",
         (time.time(), signal.strategy or "tradingview", raw, signal.symbol, signal.action, "received"),
     )
+    return _process_signal(signal, sig_id)
 
+
+def _process_signal(signal: TVSignal, sig_id: int):
+    """پایپلاینی هاوبەش: مەترسی → هاوڕابوون → دروستکردنی فەرمان."""
     ok, reason = risk.check(signal, ALLOWED_SYMBOLS)
     if not ok:
         db.execute("UPDATE signals SET status='rejected', reason=? WHERE id=?", (reason, sig_id))
@@ -124,6 +128,51 @@ async def tradingview_webhook(request: Request):
     db.execute("UPDATE signals SET status='queued' WHERE id=?", (sig_id,))
     db.log_event("info", f"فەرمان دروستکرا #{order_id} {signal.action} {signal.symbol}")
     return {"accepted": True, "order_id": order_id, "client_id": client_id}
+
+
+# --------------------------------------------------------------------------
+# 1b) LAOL indicators (BETA 1 / BETA 2.5) — فۆرماتی سروشتی
+# --------------------------------------------------------------------------
+@app.post("/webhook/laol/{source}")
+async def laol_webhook(source: str, request: Request, secret: str = ""):
+    """
+    وەرگرتنی ڕاستەوخۆی پەیامەکانی BETA 1 / BETA 2.5 بەبێ دەستکاریکردنی Pine.
+
+    URL نموونە:
+        https://your-server.com/webhook/laol/laol-beta1?secret=YOUR_SECRET
+    """
+    if secret != TV_SECRET:
+        raise HTTPException(401, "نهێنی هەڵەیە")
+
+    raw = (await request.body()).decode("utf-8", "ignore").strip()
+    settings = db.get_settings()
+
+    try:
+        signal, reason, info = laol_adapter.parse(raw, source, TV_SECRET, settings)
+    except laol_adapter.LaolParseError as exc:
+        db.execute(
+            "INSERT INTO signals(ts, source, raw, status, reason) VALUES (?,?,?,?,?)",
+            (time.time(), source, raw, "rejected", str(exc)[:300]),
+        )
+        db.log_event("error", f"LAOL parse ({source}): {exc}")
+        raise HTTPException(422, str(exc))
+
+    if signal is None:
+        db.execute(
+            "INSERT INTO signals(ts, source, raw, status, reason) VALUES (?,?,?,?,?)",
+            (time.time(), source, raw, "skipped", reason),
+        )
+        return {"accepted": False, "reason": reason, "info": info}
+
+    sig_id = db.execute(
+        "INSERT INTO signals(ts, source, raw, symbol, action, status) VALUES (?,?,?,?,?,?)",
+        (time.time(), source, raw, signal.symbol, signal.action, "received"),
+    )
+    result = _process_signal(signal, sig_id)
+    if isinstance(result, dict):
+        result["tier"] = info.get("tier")
+        result["laol_signal"] = info.get("signal")
+    return result
 
 
 # --------------------------------------------------------------------------

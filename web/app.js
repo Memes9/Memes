@@ -1,10 +1,12 @@
 const NUM_KEYS = ["risk_pct","fixed_lot","max_lot","max_open_positions","max_trades_per_day",
   "max_daily_loss_pct","max_total_drawdown_pct","max_spread_points","signal_max_age_sec",
   "default_sl_points","default_tp_points","break_even_points","trailing_start_points","trailing_step_points"];
-const BOOL_KEYS = ["trading_enabled","trailing_enabled","allow_reverse","session_filter_enabled","confluence_enabled"];
+const BOOL_KEYS = ["trading_enabled","trailing_enabled","allow_reverse","session_filter_enabled","confluence_enabled",
+  "laol_trade_forming","laol_trade_confirmed","laol_trade_final"];
 const TXT_KEYS = ["session_start_utc","session_end_utc"];
-const SEL_KEYS = ["confluence_mode","confluence_sl_policy","confluence_tp_policy"];
-NUM_KEYS.push("confluence_window_sec","confluence_min_score");
+const SEL_KEYS = ["confluence_mode","confluence_sl_policy","confluence_tp_policy","laol_tp_mode"];
+NUM_KEYS.push("confluence_window_sec","confluence_min_score",
+  "laol_sl_buffer_points","laol_max_sl_points","laol_min_sl_points");
 
 let dirty = false;
 document.addEventListener("input", () => { dirty = true; });

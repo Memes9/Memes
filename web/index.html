@@ -35,6 +35,31 @@
 
   <div class="grid">
     <section class="panel">
+      <h2>ئاستەکانی سیگناڵی LAOL</h2>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="laol_trade_forming" /><span class="slider"></span></label>
+        <span>FORMING — ⚠ لەسەر کەندیلی تەواونەبوو (ڕەنگە بگۆڕدرێت)</span>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="laol_trade_confirmed" /><span class="slider"></span></label>
+        <span>CONFIRMED — لەسەر داخستنی کەندیلی M1</span>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="laol_trade_final" /><span class="slider"></span></label>
+        <span>FINAL ENTRY — بەهێزترین سیگناڵ</span>
+      </div>
+      <div class="form">
+        <label>جۆری TP
+          <select id="laol_tp_mode">
+            <option value="tp_alt">tp_alt — ٤٠ pip (نزیک)</option>
+            <option value="tp">tp — ٨ ئەوەندەی مەترسی (دوور)</option>
+          </select>
+        </label>
+        <label>مەودای ئارامی SL (point)<input type="number" id="laol_sl_buffer_points" /></label>
+        <label>زۆرترین SL (point، 0=بێ سنوور)<input type="number" id="laol_max_sl_points" /></label>
+        <label>کەمترین SL (point، 0=بێ سنوور)<input type="number" id="laol_min_sl_points" /></label>
+      </div>
+
       <h2>هاوڕابوونی ئیندیکەیتەرەکان (Confluence)</h2>
       <div class="switch-row">
         <label class="switch"><input type="checkbox" id="confluence_enabled" /><span class="slider"></span></label>

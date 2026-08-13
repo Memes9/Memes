@@ -46,8 +46,10 @@ DEFAULTS = {
 
 
 def init() -> None:
+    from . import laol_adapter
+
     db.execute_script(VOTE_SCHEMA)
-    for k, v in DEFAULTS.items():
+    for k, v in {**DEFAULTS, **laol_adapter.DEFAULTS}.items():
         db.execute(
             "INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)",
             (k, json.dumps(v)),

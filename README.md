@@ -112,3 +112,17 @@ cp .env.example .env      # نهێنییەکان بگۆڕە!
 
 ئەم کۆدە بۆ مەبەستی فێربوون و ئۆتۆماتیککردنی کەسییە. ترەیدینگ مەترسیدارە و
 لەوانەیە هەموو سەرمایەکەت لەدەست بدەیت. هیچ گرەنتییەک نییە.
+
+---
+
+## ئیندیکەیتەرەکانی LAOL
+
+ئیندیکەیتەرەکانی BETA 1 / BETA 2.5 پێشتر `alert()` ی JSON یان تێدایە،
+بۆیە **هیچ گۆڕانکارییەک لە Pine پێویست نییە**. تەنها ئەم URL بەکاربهێنە:
+
+```
+https://your-server.com/webhook/laol/laol-beta1?secret=YOUR_SECRET
+https://your-server.com/webhook/laol/laol-beta25?secret=YOUR_SECRET
+```
+
+وردەکاری تەواو لە `docs/LAOL_SETUP.md`.
