@@ -21,6 +21,7 @@ input int     HeartbeatSec   = 5;                       // ناردنی دۆخی
 input long    MagicNumber    = 990011;
 input int     SlippagePoints = 30;
 input bool    EnableTrading  = true;                    // کلیلی ناوخۆیی
+input bool    PassthroughMode = true;                   // SL/TP وەک خۆی، بەبێ trailing
 
 CTrade         trade;
 CPositionInfo  pos;
@@ -49,7 +50,12 @@ void OnTimer()
       lastHeartbeat = TimeCurrent();
      }
    ManageOpenPositions();
-   PollOrder();
+
+   // لە مۆدی passthrough دا ڕەنگە چەند سیگناڵێک پێکەوە بێن.
+   // تا ١٠ فەرمان لە هەر سووڕێکدا جێبەجێ دەکەین تا هیچیان دوا نەکەوێت.
+   for(int k = 0; k < 10; k++)
+      if(!PollOrder())
+         break;
   }
 
 //+------------------------------------------------------------------+
@@ -111,10 +117,10 @@ bool   JsonBool(string json, string key) { string v = JsonStr(json, key); return
 //+------------------------------------------------------------------+
 //| وەرگرتنی فەرمانی داهاتوو                                          |
 //+------------------------------------------------------------------+
-void PollOrder()
+bool PollOrder()
   {
    string resp = HttpGet(ServerURL + "/api/orders/next?token=" + EAToken);
-   if(resp == "" || StringFind(resp, "\"has_order\":true") < 0) return;
+   if(resp == "" || StringFind(resp, "\"has_order\":true") < 0) return false;
 
    string clientId  = JsonStr(resp, "client_id");
    string action    = JsonStr(resp, "action");
@@ -132,21 +138,21 @@ void PollOrder()
    string symbol = ResolveSymbol(symbolIn);
 
    if(!EnableTrading)
-     { Report(clientId, "failed", 0, 0, "EA locally disabled"); return; }
+     { Report(clientId, "failed", 0, 0, "EA locally disabled"); return true; }
 
    if(action == "close_all")
-     { CloseAll(); Report(clientId, "filled", 0, 0, ""); return; }
+     { CloseAll(); Report(clientId, "filled", 0, 0, ""); return true; }
 
    if(action == "close")
-     { ClosePositionsOn(symbol); Report(clientId, "filled", 0, 0, ""); return; }
+     { ClosePositionsOn(symbol); Report(clientId, "filled", 0, 0, ""); return true; }
 
    if(symbol == "")
-     { Report(clientId, "failed", 0, 0, "symbol not found: " + symbolIn); return; }
+     { Report(clientId, "failed", 0, 0, "symbol not found: " + symbolIn); return true; }
 
    //--- فیلتەری سپرێد
    double spread = (double)SymbolInfoInteger(symbol, SYMBOL_SPREAD);
    if(maxSpread > 0 && spread > maxSpread)
-     { Report(clientId, "failed", 0, 0, StringFormat("spread too high %.0f", spread)); return; }
+     { Report(clientId, "failed", 0, 0, StringFormat("spread too high %.0f", spread)); return true; }
 
    bool isBuy = (action == "buy");
    double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
@@ -166,7 +172,7 @@ void PollOrder()
      }
    volume = NormalizeVolume(symbol, MathMin(volume, maxLot > 0 ? maxLot : volume));
    if(volume <= 0)
-     { Report(clientId, "failed", 0, 0, "invalid volume"); return; }
+     { Report(clientId, "failed", 0, 0, "invalid volume"); return true; }
 
    //--- پێچەوانەکردن
    if(allowRev) CloseOppositePositions(symbol, isBuy);
@@ -178,6 +184,8 @@ void PollOrder()
       Report(clientId, "filled", (long)trade.ResultOrder(), trade.ResultPrice(), "");
    else
       Report(clientId, "failed", 0, 0, StringFormat("%d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription()));
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -232,6 +240,11 @@ double LotByRisk(string symbol, double riskPct, double slDistance)
 //+------------------------------------------------------------------+
 void ManageOpenPositions()
   {
+   // لە مۆدی passthrough دا دەستکاری SL ناکەین — ئیندیکەیتەرەکە خۆی
+   // SL/TP دادەنێت بەپێی جۆری کاندڵەکان (Risk:Reward = 1:8).
+   if(PassthroughMode)
+      return;
+
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(!pos.SelectByIndex(i)) continue;

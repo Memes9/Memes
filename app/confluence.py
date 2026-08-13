@@ -101,6 +101,17 @@ def evaluate(signal) -> tuple[bool, str, dict]:
     ئەگەر confluence ناچالاک بێت، هەموو سیگناڵێک بەتەنیا کاردەکات.
     """
     cfg = _cfg()
+
+    # مۆدی گواستنەوەی تەواو: دەنگەکان تۆمار دەکرێن بۆ داشبۆرد،
+    # بەڵام هیچ سیگناڵێک ڕانەگیردرێت.
+    if db.get_settings().get("laol_passthrough", True):
+        record_vote(signal)
+        db.execute(
+            "UPDATE votes SET consumed=1 WHERE symbol=? AND consumed=0",
+            (signal.symbol,),
+        )
+        return True, "passthrough — بەبێ فیلتەر", {}
+
     if not cfg["confluence_enabled"]:
         return True, "confluence ناچالاکە", {}
 

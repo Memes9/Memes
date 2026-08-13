@@ -35,29 +35,23 @@
 
   <div class="grid">
     <section class="panel">
-      <h2>ئاستەکانی سیگناڵی LAOL</h2>
+      <h2>مۆدی گواستنەوە</h2>
       <div class="switch-row">
-        <label class="switch"><input type="checkbox" id="laol_trade_forming" /><span class="slider"></span></label>
-        <span>FORMING — ⚠ لەسەر کەندیلی تەواونەبوو (ڕەنگە بگۆڕدرێت)</span>
+        <label class="switch"><input type="checkbox" id="laol_passthrough" /><span class="slider"></span></label>
+        <span><b>PASSTHROUGH</b> — هەموو سیگناڵێک دەبێتە ئۆردەر</span>
       </div>
-      <div class="switch-row">
-        <label class="switch"><input type="checkbox" id="laol_trade_confirmed" /><span class="slider"></span></label>
-        <span>CONFIRMED — لەسەر داخستنی کەندیلی M1</span>
-      </div>
-      <div class="switch-row">
-        <label class="switch"><input type="checkbox" id="laol_trade_final" /><span class="slider"></span></label>
-        <span>FINAL ENTRY — بەهێزترین سیگناڵ</span>
-      </div>
+      <div id="ptNote" class="vote-note"></div>
       <div class="form">
         <label>جۆری TP
           <select id="laol_tp_mode">
-            <option value="tp_alt">tp_alt — ٤٠ pip (نزیک)</option>
-            <option value="tp">tp — ٨ ئەوەندەی مەترسی (دوور)</option>
+            <option value="tp">tp — ئەوەی ئیندیکەیتەر دایدەنێت (1:8)</option>
+            <option value="tp_alt">tp_alt — ٤٠ pip</option>
           </select>
         </label>
-        <label>مەودای ئارامی SL (point)<input type="number" id="laol_sl_buffer_points" /></label>
-        <label>زۆرترین SL (point، 0=بێ سنوور)<input type="number" id="laol_max_sl_points" /></label>
-        <label>کەمترین SL (point، 0=بێ سنوور)<input type="number" id="laol_min_sl_points" /></label>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="laol_trade_info_signals" /><span class="slider"></span></label>
+        <span>سیگناڵی <code>*_LAOL_*_TAKEN</code> ـیش ترەید بکات</span>
       </div>
 
       <h2>هاوڕابوونی ئیندیکەیتەرەکان (Confluence)</h2>

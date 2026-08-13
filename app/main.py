@@ -29,7 +29,9 @@ load_dotenv()
 TV_SECRET = os.getenv("TV_WEBHOOK_SECRET", "change-me-tradingview-secret")
 EA_TOKEN = os.getenv("EA_TOKEN", "change-me-ea-token")
 ALLOWED_SYMBOLS = [s.strip() for s in os.getenv("ALLOWED_SYMBOLS", "").split(",") if s.strip()]
-ORDER_TTL_SEC = 90  # فەرمانی نەبردراو بەدەر دەچێت
+#: فەرمانی نەبردراو دوای ئەم ماوەیە بەدەر دەچێت (چرکە).
+#: لە مۆدی passthrough دا بەرزە تا هیچ سیگناڵێک بێدەنگ نەفەوتێت.
+ORDER_TTL_SEC = int(os.getenv("ORDER_TTL_SEC", "900"))
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "web"
@@ -195,12 +197,19 @@ def next_order(token: str):
     )
     rows = db.query("SELECT * FROM orders WHERE status='pending' ORDER BY id ASC LIMIT 1")
     if not rows:
-        return {"has_order": False}
+        return {"has_order": False, "pending": 0}
+    pending_left = db.query("SELECT COUNT(*) c FROM orders WHERE status='pending'")[0]["c"]
     o = rows[0]
     db.execute("UPDATE orders SET status='sent', updated_ts=? WHERE id=?", (time.time(), o["id"]))
     s = db.get_settings()
+    passthrough = bool(s.get("laol_passthrough", True))
+
+    # لە مۆدی passthrough دا EA هیچ شتێک زیاد ناکات و هیچ پۆزیشنێک نادات:
+    # SL/TP وەک خۆی لە ئیندیکەیتەرەوە، بەبێ سنووری سپرێد، بەبێ پێچەوانەکردن.
     return {
         "has_order": True,
+        # ژمارەی فەرمانی چاوەڕوان — EA بەکاریدەهێنێت بۆ خێراکردنی داواکاری
+        "pending": max(0, pending_left - 1),
         "order": {
             "id": o["id"],
             "client_id": o["client_id"],
@@ -213,14 +222,14 @@ def next_order(token: str):
             "tp": o["tp"],
             "risk_pct": o["risk_pct"],
             "max_lot": s["max_lot"],
-            "max_spread_points": s["max_spread_points"],
-            "allow_reverse": s["allow_reverse"],
-            "default_sl_points": s["default_sl_points"],
-            "default_tp_points": s["default_tp_points"],
-            "trailing_enabled": s["trailing_enabled"],
+            "max_spread_points": 0 if passthrough else s["max_spread_points"],
+            "allow_reverse": False if passthrough else s["allow_reverse"],
+            "default_sl_points": 0 if passthrough else s["default_sl_points"],
+            "default_tp_points": 0 if passthrough else s["default_tp_points"],
+            "trailing_enabled": False if passthrough else s["trailing_enabled"],
             "trailing_start_points": s["trailing_start_points"],
             "trailing_step_points": s["trailing_step_points"],
-            "break_even_points": s["break_even_points"],
+            "break_even_points": 0 if passthrough else s["break_even_points"],
         },
     }
 

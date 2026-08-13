@@ -51,11 +51,13 @@ def main() -> None:
             })
             last_hb = time.time()
 
-        r = c.get(f"{BASE}/api/orders/next", params={"token": TOKEN}).json()
-        if r.get("has_order"):
+        for _ in range(10):
+            r = c.get(f"{BASE}/api/orders/next", params={"token": TOKEN}).json()
+            if not r.get("has_order"):
+                break
             o = r["order"]
             cid, act = o["client_id"], o["action"]
-            print(f"  -> order {cid}: {act} {o['symbol']} vol={o['volume']} risk={o['risk_pct']}")
+            print(f"  -> order {cid}: {act} {o['symbol']} sl={o['sl']} tp={o['tp']}")
             if act in ("close", "close_all"):
                 for pos in list(positions):
                     balance += pos["profit"]

@@ -56,6 +56,15 @@ def check(signal, allowed_symbols: list[str]) -> tuple[bool, str]:
     if allowed_symbols and signal.symbol.upper() not in [x.upper() for x in allowed_symbols]:
         return False, f"سیمبولی ڕێگەپێنەدراو: {signal.symbol}"
 
+    if signal.action in ("close", "close_all", "modify"):
+        return True, "ok"  # داخستن هەمیشە ڕێگەپێدراوە
+
+    # ── مۆدی گواستنەوەی تەواو ────────────────────────────────────────
+    # کاتێک چالاک بێت، تەنها kill switch و سیمبول کاردەکەن.
+    # هەموو سیگناڵێک دەبێتە ئۆردەر — بەبێ سنووری پۆزیشن یان ژمارەی ترەید.
+    if s.get("laol_passthrough", True):
+        return True, "ok (passthrough)"
+
     if not _in_session(s):
         return False, "دەرەوەی کاتی سێشنی دیاریکراو"
 
@@ -68,9 +77,6 @@ def check(signal, allowed_symbols: list[str]) -> tuple[bool, str]:
                 return False, f"سیگناڵ زۆر کۆنە ({int(age)} چرکە)"
         except Exception:
             pass
-
-    if signal.action in ("close", "close_all", "modify"):
-        return True, "ok"  # داخستن هەمیشە ڕێگەپێدراوە
 
     # فیلتەری سپرێد + دراودان
     acc = latest_account()

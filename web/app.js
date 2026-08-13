@@ -2,11 +2,10 @@ const NUM_KEYS = ["risk_pct","fixed_lot","max_lot","max_open_positions","max_tra
   "max_daily_loss_pct","max_total_drawdown_pct","max_spread_points","signal_max_age_sec",
   "default_sl_points","default_tp_points","break_even_points","trailing_start_points","trailing_step_points"];
 const BOOL_KEYS = ["trading_enabled","trailing_enabled","allow_reverse","session_filter_enabled","confluence_enabled",
-  "laol_trade_forming","laol_trade_confirmed","laol_trade_final"];
+  "laol_passthrough","laol_trade_info_signals"];
 const TXT_KEYS = ["session_start_utc","session_end_utc"];
 const SEL_KEYS = ["confluence_mode","confluence_sl_policy","confluence_tp_policy","laol_tp_mode"];
-NUM_KEYS.push("confluence_window_sec","confluence_min_score",
-  "laol_sl_buffer_points","laol_max_sl_points","laol_min_sl_points");
+NUM_KEYS.push("confluence_window_sec","confluence_min_score");
 
 let dirty = false;
 document.addEventListener("input", () => { dirty = true; });
@@ -43,6 +42,16 @@ async function refresh() {
     TXT_KEYS.forEach(k => { const e = document.getElementById(k); if (e) e.value = s.settings[k]; });
     SEL_KEYS.forEach(k => { const e = document.getElementById(k); if (e) e.value = s.settings[k]; });
   }
+
+  const pt = !!s.settings.laol_passthrough;
+  const note = document.getElementById("ptNote");
+  if (note) {
+    note.innerHTML = pt
+      ? '<span style="color:var(--green)">✓ چالاکە — هەموو سیگناڵێک بەبێ فیلتەر دەگوازرێتەوە. SL/TP لە ئیندیکەیتەرەوە دێت. سنووری پۆزیشن و confluence کار ناکەن.</span>'
+      : '<span style="color:#e08a24">⚠ ناچالاکە — سنوورەکانی مەترسی و confluence کاردەکەن.</span>';
+  }
+  document.querySelectorAll("#confluence_enabled,#confluence_mode,#confluence_window_sec,#confluence_min_score")
+    .forEach(e => { e.disabled = pt; });
 
   renderVotes(s.confluence);
 
