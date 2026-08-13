@@ -5,3 +5,6 @@ __pycache__/
 data/*.db
 data/*.sqlite3
 *.log
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
