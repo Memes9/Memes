@@ -122,14 +122,20 @@ def _process_signal(signal: TVSignal, sig_id: int):
     volume, risk_pct = risk.sizing(signal)
     order_id = db.execute(
         """INSERT INTO orders(ts, signal_id, client_id, symbol, action, order_type, volume,
-                              price, sl, tp, risk_pct, status, updated_ts)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?)""",
+                              price, sl, tp, risk_pct, magic, tf, status, updated_ts)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)""",
         (time.time(), sig_id, client_id, signal.symbol, signal.action, signal.order_type,
-         volume, signal.price, signal.sl, signal.tp, risk_pct, time.time()),
+         volume, signal.price, signal.sl, signal.tp, risk_pct,
+         signal.magic, signal.tf, time.time()),
     )
     db.execute("UPDATE signals SET status='queued' WHERE id=?", (sig_id,))
-    db.log_event("info", f"فەرمان دروستکرا #{order_id} {signal.action} {signal.symbol}")
-    return {"accepted": True, "order_id": order_id, "client_id": client_id}
+    db.log_event(
+        "info",
+        f"فەرمان دروستکرا #{order_id} {signal.action} {signal.symbol}"
+        + (f" tf{signal.tf} magic={signal.magic}" if signal.magic else ""),
+    )
+    return {"accepted": True, "order_id": order_id, "client_id": client_id,
+            "magic": signal.magic, "tf": signal.tf}
 
 
 # --------------------------------------------------------------------------
@@ -221,6 +227,9 @@ def next_order(token: str):
             "sl": o["sl"],
             "tp": o["tp"],
             "risk_pct": o["risk_pct"],
+            # جیاکردنەوەی لەیئاوتەکان — EA بەم ژمارەیە ئۆردەرەکان جیا دەکاتەوە
+            "magic": o["magic"] or 0,
+            "tf": o["tf"] or "",
             "max_lot": s["max_lot"],
             "max_spread_points": 0 if passthrough else s["max_spread_points"],
             "allow_reverse": False if passthrough else s["allow_reverse"],

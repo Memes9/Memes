@@ -118,9 +118,25 @@ def _connect() -> sqlite3.Connection:
 _conn = _connect()
 
 
+#: ستوونە نوێکان کە دواتر زیادکراون — بەبێ لەدەستدانی داتای کۆن
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("orders", "magic", "INTEGER DEFAULT 0"),
+    ("orders", "tf", "TEXT DEFAULT ''"),
+]
+
+
+def _migrate() -> None:
+    """زیادکردنی ستوونە نوێکان ئەگەر نەبن (سەلامەتە ئەگەر چەند جار بانگ بکرێت)."""
+    for table, col, decl in _MIGRATIONS:
+        cols = {r[1] for r in _conn.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            _conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
 def init_db() -> None:
     with _lock:
         _conn.executescript(SCHEMA)
+        _migrate()
         for k, v in DEFAULT_SETTINGS.items():
             _conn.execute(
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",

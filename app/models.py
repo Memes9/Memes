@@ -22,6 +22,8 @@ class TVSignal(BaseModel):
     signal_id: Optional[str] = None      # بۆ idempotency (دووبارە نەکردنەوەی ترەید)
     time: Optional[str] = None           # {{timenow}} لە TradingView
     comment: str = ""
+    tf: str = ""                         # تایمفرەیمی سیگناڵ (1, 3, ...)
+    magic: int = 0                       # ژمارەی جادوویی — بەپێی tf دیاری دەکرێت
 
 
 class OrderOut(BaseModel):
@@ -38,6 +40,7 @@ class OrderOut(BaseModel):
     tp: float
     risk_pct: float
     comment: str = ""
+    magic: int = 0
 
 
 class ExecReport(BaseModel):

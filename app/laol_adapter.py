@@ -33,6 +33,33 @@ TIER_CONFIRMED = "confirmed"
 TIER_FINAL = "final"
 TIER_INFO = "info"
 
+# ---------------------------------------------------------------- magic
+#: جیاکردنەوەی ئۆردەرەکان بەپێی تایمفرەیم.
+#: هەر لەیئاوتێک ژمارەیەکی جادوویی تایبەت بە خۆی هەیە، بۆیە SL/TP ی
+#: ١m و ٣m هەرگیز تێکەڵ نابن و سەربەخۆ بەڕێوە دەبرێن.
+MAGIC_BASE = 990000
+TF_MAGIC: dict[str, int] = {
+    "1": 990001,   # لەیئاوتی ١ خولەک
+    "3": 990003,   # لەیئاوتی ٣ خولەک
+}
+MAGIC_DEFAULT = 990000  # تایمفرەیمی نەناسراو
+
+
+def magic_for_tf(tf: str) -> int:
+    """ژمارەی جادوویی بۆ تایمفرەیمێک.
+
+    تایمفرەیمە ناسراوەکان ژمارەی جێگیریان هەیە. بۆ هەر تایمفرەیمێکی تر
+    ژمارەیەکی جیاواز دەردەهێنرێت (990000 + خولەکەکان) تاکو هەرگیز
+    لەگەڵ ١m و ٣m تێکەڵ نەبێت.
+    """
+    tf = str(tf or "").strip()
+    if tf in TF_MAGIC:
+        return TF_MAGIC[tf]
+    m = re.match(r"^(\d+)$", tf)
+    if m:
+        return MAGIC_BASE + int(m.group(1))
+    return MAGIC_DEFAULT
+
 #: سیگناڵە ناسراوەکان -> (tier, action)
 SIGNAL_MAP: dict[str, tuple[str, str]] = {
     "BEAR_FORMING":          (TIER_FORMING,   "sell"),
@@ -167,6 +194,10 @@ def parse(raw: str | dict, source: str, secret: str, settings: dict) -> tuple[TV
     if not passthrough:
         info["note"] = "passthrough ناچالاکە"
 
+    tf = str(data.get("tf", ""))
+    magic = magic_for_tf(tf)
+    info["magic"] = magic
+
     signal = TVSignal(
         secret=secret,
         action=action,
@@ -175,7 +206,11 @@ def parse(raw: str | dict, source: str, secret: str, settings: dict) -> tuple[TV
         sl=sl,
         tp=tp,
         strategy=source,
-        signal_id=f"{source}-{sig_name}-{data.get('id', '')}",
-        comment=f"{sig_name}|tf{data.get('tf', '')}",
+        # tf بەشێکە لە ناسنامەکە: ئەگەر ١m و ٣m هەمان id بنێرن،
+        # هەریەکەیان ئۆردەری سەربەخۆی خۆی دەبێت (نە دووبارە دەژمێردرێن)
+        signal_id=f"{source}-tf{tf}-{sig_name}-{data.get('id', '')}",
+        comment=f"{sig_name}|tf{tf}",
+        tf=tf,
+        magic=magic,
     )
     return signal, "ok", info

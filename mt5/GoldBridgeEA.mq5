@@ -18,7 +18,8 @@ input string  ServerURL      = "http://127.0.0.1:8000"; // ناونیشانی س
 input string  EAToken        = "change-me-ea-token";    // EA_TOKEN
 input int     PollMs         = 1500;                    // ماوەی پرسیارکردن (میلی چرکە)
 input int     HeartbeatSec   = 5;                       // ناردنی دۆخی هەژمار
-input long    MagicNumber    = 990011;
+input long    MagicNumber    = 990011;   // بنەڕەت — ئەگەر سیگناڵ خۆی magic نەنێرێت
+input bool    UseSignalMagic = true;     // magicـی سیگناڵ بەکاربهێنە (جیاکردنەوەی 1m/3m)
 input int     SlippagePoints = 30;
 input bool    EnableTrading  = true;                    // کلیلی ناوخۆیی
 input bool    PassthroughMode = true;                   // SL/TP وەک خۆی، بەبێ trailing
@@ -28,6 +29,11 @@ input bool    SpreadComp     = true;   // سپرێد بخە سەر SL و TP
 input double  SpreadExtraPts = 0;      // پۆینتی زیادە لەسەر سپرێد (بەتاڵ = تەنها سپرێد)
 input double  SpreadCapPts   = 0;      // زۆرترین سپرێد کە زیاد دەکرێت (0 = بێ سنوور)
 input bool    RespectStopsLevel = true; // ئەگەر SL/TP زۆر نزیک بوو، بیپاڵێوە دەرەوە
+
+//--- پێشوەختە ڕاگەیاندن (MQL5 پێویستی پێیەتی پێش بەکارهێنان)
+bool IsOurMagic(long m);
+bool IsSameLayout(long m, long want);
+void CloseOppositePositions(string symbol, bool wantBuy, long layoutMagic);
 
 CTrade         trade;
 CPositionInfo  pos;
@@ -140,6 +146,12 @@ bool PollOrder()
    bool   allowRev  = JsonBool(resp, "allow_reverse");
    double defSlPts  = JsonNum(resp, "default_sl_points");
    double defTpPts  = JsonNum(resp, "default_tp_points");
+   long   sigMagic  = (long)JsonNum(resp, "magic");
+   string sigTf     = JsonStr(resp, "tf");
+
+   //--- جیاکردنەوەی لەیئاوتەکان: هەر تایمفرەیمێک magicـی خۆی
+   long useMagic = (UseSignalMagic && sigMagic > 0) ? sigMagic : MagicNumber;
+   trade.SetExpertMagicNumber(useMagic);
 
    string symbol = ResolveSymbol(symbolIn);
 
@@ -212,7 +224,7 @@ bool PollOrder()
      { Report(clientId, "failed", 0, 0, "invalid volume"); return true; }
 
    //--- پێچەوانەکردن
-   if(allowRev) CloseOppositePositions(symbol, isBuy);
+   if(allowRev) CloseOppositePositions(symbol, isBuy, useMagic);
 
    if(SpreadComp)
       PrintFormat("%s %s | سپرێد=%.0fp زیادکراو=%.0fp | SL=%.*f TP=%.*f | لۆت=%.2f",
@@ -291,7 +303,7 @@ void ManageOpenPositions()
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(!pos.SelectByIndex(i)) continue;
-      if(pos.Magic() != MagicNumber) continue;
+      if(!IsOurMagic(pos.Magic())) continue;
       string sym = pos.Symbol();
       double point = SymbolInfoDouble(sym, SYMBOL_POINT);
       double openP = pos.PriceOpen();
@@ -311,26 +323,45 @@ void ManageOpenPositions()
      }
   }
 
+//+------------------------------------------------------------------+
+//| ئایا ئەم پۆزیشنە هی ئێمەیە؟                                      |
+//| هەموو ژمارە جادووییەکانی 9900xx هی ئەم پردەن (هەر تایمفرەیمێک    |
+//| ژمارەی خۆی هەیە) — بۆیە پۆزیشنی دەستی یان EA ی تر دەست لێ نادرێت.|
+//+------------------------------------------------------------------+
+bool IsOurMagic(long m)
+  {
+   if(m == MagicNumber) return true;
+   if(!UseSignalMagic)  return false;
+   return (m >= 990000 && m <= 990999);
+  }
+
+//--- تەنها پۆزیشنەکانی یەک لەیئاوت (بۆ جیاکردنەوەی تەواو)
+bool IsSameLayout(long m, long want)
+  {
+   return (m == want);
+  }
+
 void CloseAll()
   {
    for(int i = PositionsTotal() - 1; i >= 0; i--)
-      if(pos.SelectByIndex(i) && pos.Magic() == MagicNumber)
+      if(pos.SelectByIndex(i) && IsOurMagic(pos.Magic()))
          trade.PositionClose(pos.Ticket());
   }
 
 void ClosePositionsOn(string symbol)
   {
    for(int i = PositionsTotal() - 1; i >= 0; i--)
-      if(pos.SelectByIndex(i) && pos.Magic() == MagicNumber && pos.Symbol() == symbol)
+      if(pos.SelectByIndex(i) && IsOurMagic(pos.Magic()) && pos.Symbol() == symbol)
          trade.PositionClose(pos.Ticket());
   }
 
-void CloseOppositePositions(string symbol, bool wantBuy)
+//--- پێچەوانەکردن: تەنها لەناو هەمان لەیئاوتدا (١m بەسەر ٣m دا نەڕوات)
+void CloseOppositePositions(string symbol, bool wantBuy, long layoutMagic)
   {
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(!pos.SelectByIndex(i)) continue;
-      if(pos.Magic() != MagicNumber || pos.Symbol() != symbol) continue;
+      if(!IsSameLayout(pos.Magic(), layoutMagic) || pos.Symbol() != symbol) continue;
       bool isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
       if(isBuy != wantBuy) trade.PositionClose(pos.Ticket());
      }
@@ -387,7 +418,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
   {
    if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
    if(!HistoryDealSelect(trans.deal)) return;
-   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != MagicNumber) return;
+   if(!IsOurMagic(HistoryDealGetInteger(trans.deal, DEAL_MAGIC))) return;
    if(HistoryDealGetInteger(trans.deal, DEAL_ENTRY) != DEAL_ENTRY_OUT) return;
 
    double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
