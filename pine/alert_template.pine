@@ -1,0 +1,59 @@
+//@version=5
+// ────────────────────────────────────────────────────────────────
+//  تێمپلەیتی ئەلێرت بۆ GoldBridge
+//  ئەم بەشە بخە ناو ئیندیکەیتەری خۆتەوە — پێویست ناکات لۆجیکەکەت
+//  بگۆڕیت، تەنها لە شوێنی سیگناڵ alert() بانگ بکە.
+// ────────────────────────────────────────────────────────────────
+indicator("GoldBridge Alert Template", overlay = true)
+
+// ── 1) لۆجیکی خۆت لێرە دابنێ (ئەمە تەنها نموونەیە) ──────────────
+fast = ta.ema(close, 21)
+slow = ta.ema(close, 55)
+longSignal  = ta.crossover(fast, slow)
+shortSignal = ta.crossunder(fast, slow)
+
+// ── 2) ڕێکخستنەکان ──────────────────────────────────────────────
+secret   = input.string("change-me-tradingview-secret", "Webhook Secret")
+strat    = input.string("gold-v1", "ناوی ستراتیژی")
+riskPct  = input.float(0.5, "مەترسی %", step = 0.1)
+atrMult  = input.float(1.5, "ATR بۆ SL", step = 0.1)
+rr       = input.float(2.0, "Risk : Reward", step = 0.1)
+
+atr = ta.atr(14)
+longSL  = close - atr * atrMult
+longTP  = close + atr * atrMult * rr
+shortSL = close + atr * atrMult
+shortTP = close - atr * atrMult * rr
+
+// ── 3) دروستکردنی پەیامی JSON ───────────────────────────────────
+// signal_id گرنگە: ڕێگری لە دووبارەبوونەوەی هەمان ترەید دەکات
+f_msg(action, sl, tp) =>
+    '{"secret":"'    + secret +
+    '","action":"'   + action +
+    '","symbol":"'   + syminfo.ticker +
+    '","price":'     + str.tostring(close, "#.##") +
+    ',"sl":'         + str.tostring(sl, "#.##") +
+    ',"tp":'         + str.tostring(tp, "#.##") +
+    ',"risk_pct":'   + str.tostring(riskPct) +
+    ',"strategy":"'  + strat +
+    '","signal_id":"' + strat + "-" + str.tostring(time) + "-" + action +
+    '","time":"'     + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ss'Z'", "UTC") + '"}'
+
+// ── 4) ناردنی ئەلێرت ────────────────────────────────────────────
+if longSignal
+    alert(f_msg("buy",  longSL,  longTP),  alert.freq_once_per_bar_close)
+if shortSignal
+    alert(f_msg("sell", shortSL, shortTP), alert.freq_once_per_bar_close)
+
+plotshape(longSignal,  style = shape.triangleup,   location = location.belowbar, color = color.lime)
+plotshape(shortSignal, style = shape.triangledown, location = location.abovebar, color = color.red)
+
+// ────────────────────────────────────────────────────────────────
+//  ڕێنمایی:
+//  1. ئیندیکەیتەرەکە زیاد بکە بۆ چارتی XAUUSD
+//  2. کلیک لە زەنگەکە > Create Alert
+//  3. Condition = ئەم ئیندیکەیتەرە،  "Any alert() function call"
+//  4. Notifications > Webhook URL:
+//        https://your-server.com/webhook/tradingview
+//  5. Trigger: Once Per Bar Close  (زۆر گرنگە بۆ نەبوونی repaint)
+// ────────────────────────────────────────────────────────────────

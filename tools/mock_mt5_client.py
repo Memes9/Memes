@@ -1,0 +1,83 @@
+"""
+Mock MT5 executor — هەمان پرۆتۆکۆلی EA بەکاردێنێت بەڵام ترەیدی خەیاڵی دەکات.
+بۆ تاقیکردنەوەی سیستەمەکە بەبێ MetaTrader.
+
+    python tools/mock_mt5_client.py --url http://127.0.0.1:8000 --token change-me-ea-token
+"""
+from __future__ import annotations
+
+import argparse
+import random
+import time
+
+import httpx
+
+p = argparse.ArgumentParser()
+p.add_argument("--url", default="http://127.0.0.1:8000")
+p.add_argument("--token", default="change-me-ea-token")
+args = p.parse_args()
+
+BASE, TOKEN = args.url.rstrip("/"), args.token
+balance, equity = 10_000.0, 10_000.0
+positions: list[dict] = []
+next_ticket = 500_001
+price = 3_350.0
+
+
+def tick() -> float:
+    global price
+    price = round(price + random.uniform(-1.5, 1.5), 2)
+    return price
+
+
+def main() -> None:
+    global next_ticket, balance, equity
+    c = httpx.Client(timeout=8)
+    last_hb = 0.0
+    print(f"Mock MT5 executor -> {BASE}")
+    while True:
+        px = tick()
+        for pos in positions:
+            sign = 1 if pos["side"] == "buy" else -1
+            pos["profit"] = round((px - pos["open_price"]) * sign * pos["volume"] * 100, 2)
+        equity = balance + sum(p_["profit"] for p_ in positions)
+
+        if time.time() - last_hb > 4:
+            c.post(f"{BASE}/api/account/report", json={
+                "token": TOKEN, "login": "12345678", "broker": "Mock-Demo", "currency": "USD",
+                "balance": round(balance, 2), "equity": round(equity, 2), "margin": 120.0,
+                "free_margin": round(equity - 120, 2), "margin_level": 850.0,
+                "spread_points": 22, "positions": positions,
+            })
+            last_hb = time.time()
+
+        r = c.get(f"{BASE}/api/orders/next", params={"token": TOKEN}).json()
+        if r.get("has_order"):
+            o = r["order"]
+            cid, act = o["client_id"], o["action"]
+            print(f"  -> order {cid}: {act} {o['symbol']} vol={o['volume']} risk={o['risk_pct']}")
+            if act in ("close", "close_all"):
+                for pos in list(positions):
+                    balance += pos["profit"]
+                    c.post(f"{BASE}/api/trades/closed", json={
+                        "token": TOKEN, "ticket": pos["ticket"], "symbol": pos["symbol"],
+                        "side": pos["side"], "volume": pos["volume"],
+                        "open_price": pos["open_price"], "close_price": px,
+                        "profit": pos["profit"], "closed_ts": time.time()})
+                    positions.remove(pos)
+                c.post(f"{BASE}/api/orders/report", json={
+                    "token": TOKEN, "client_id": cid, "status": "filled"})
+            else:
+                vol = o["volume"] or round(max(0.01, equity * (o["risk_pct"] or 0.5) / 100 / 300), 2)
+                pos = {"ticket": next_ticket, "symbol": o["symbol"] or "XAUUSD", "side": act,
+                       "volume": vol, "open_price": px, "profit": 0.0}
+                next_ticket += 1
+                positions.append(pos)
+                c.post(f"{BASE}/api/orders/report", json={
+                    "token": TOKEN, "client_id": cid, "status": "filled",
+                    "ticket": pos["ticket"], "fill_price": px})
+        time.sleep(1.5)
+
+
+if __name__ == "__main__":
+    main()

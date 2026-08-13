@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ckb" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GoldBridge — بەڕێوەبردنی ترەیدی ئۆتۆماتیکی</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">◆</span>
+    <div>
+      <h1>GoldBridge</h1>
+      <small>TradingView ⇄ MetaTrader 5 — XAUUSD</small>
+    </div>
+  </div>
+  <div class="header-right">
+    <span id="conn" class="pill off">MT5: پەیوەندی نییە</span>
+    <button id="killBtn" class="btn danger">ڕاگرتنی خێرا (PANIC)</button>
+  </div>
+</header>
+
+<main>
+  <section class="cards" id="cards">
+    <div class="card"><span>باڵانس</span><b id="balance">—</b></div>
+    <div class="card"><span>ئیکویتی</span><b id="equity">—</b></div>
+    <div class="card"><span>مارجینی بەردەست</span><b id="freeMargin">—</b></div>
+    <div class="card"><span>قازانجی ڕۆژانە</span><b id="pnlToday">—</b></div>
+    <div class="card"><span>ترەیدی ئەمڕۆ</span><b id="tradesToday">—</b></div>
+    <div class="card"><span>ڕێژەی بردنەوە</span><b id="winRate">—</b></div>
+    <div class="card"><span>Profit Factor</span><b id="pf">—</b></div>
+    <div class="card"><span>پۆزیشنی کراوە</span><b id="openPos">—</b></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>کلیلی سەرەکی</h2>
+      <div class="switch-row">
+        <label class="switch">
+          <input type="checkbox" id="tradingEnabled" />
+          <span class="slider"></span>
+        </label>
+        <span>ترەیدینگی ئۆتۆماتیکی چالاک بێت</span>
+      </div>
+      <h2>بەڕێوەبردنی مەترسی</h2>
+      <div class="form">
+        <label>مەترسی بۆ هەر ترەیدێک (%)<input type="number" step="0.1" id="risk_pct" /></label>
+        <label>لۆتی جێگیر (0 = خۆکار)<input type="number" step="0.01" id="fixed_lot" /></label>
+        <label>زۆرترین لۆت<input type="number" step="0.01" id="max_lot" /></label>
+        <label>زۆرترین پۆزیشنی کراوە<input type="number" id="max_open_positions" /></label>
+        <label>زۆرترین ترەید لە ڕۆژێکدا<input type="number" id="max_trades_per_day" /></label>
+        <label>زۆرترین زیانی ڕۆژانە (%)<input type="number" step="0.1" id="max_daily_loss_pct" /></label>
+        <label>زۆرترین Drawdown (%)<input type="number" step="0.1" id="max_total_drawdown_pct" /></label>
+        <label>زۆرترین سپرێد (point)<input type="number" id="max_spread_points" /></label>
+        <label>تەمەنی سیگناڵ (چرکە)<input type="number" id="signal_max_age_sec" /></label>
+        <label>SL ی بنەڕەت (point)<input type="number" id="default_sl_points" /></label>
+        <label>TP ی بنەڕەت (point)<input type="number" id="default_tp_points" /></label>
+        <label>Break-even (point)<input type="number" id="break_even_points" /></label>
+        <label>دەستپێکی Trailing (point)<input type="number" id="trailing_start_points" /></label>
+        <label>هەنگاوی Trailing (point)<input type="number" id="trailing_step_points" /></label>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="trailing_enabled" /><span class="slider"></span></label>
+        <span>Trailing Stop چالاک</span>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="allow_reverse" /><span class="slider"></span></label>
+        <span>ڕێگەدان بە پێچەوانەکردنی پۆزیشن</span>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="session_filter_enabled" /><span class="slider"></span></label>
+        <span>فیلتەری کاتی سێشن (UTC)</span>
+      </div>
+      <div class="form">
+        <label>دەستپێک (UTC)<input type="text" id="session_start_utc" placeholder="07:00" /></label>
+        <label>کۆتایی (UTC)<input type="text" id="session_end_utc" placeholder="20:00" /></label>
+      </div>
+      <button id="saveBtn" class="btn primary">پاشەکەوتکردنی ڕێکخستنەکان</button>
+      <span id="saveMsg" class="msg"></span>
+    </section>
+
+    <section class="panel">
+      <h2>ترەیدی دەستی</h2>
+      <div class="form">
+        <label>سیمبول<input type="text" id="m_symbol" value="XAUUSD" /></label>
+        <label>لۆت (0 = بەپێی مەترسی)<input type="number" step="0.01" id="m_volume" value="0" /></label>
+        <label>SL (نرخ)<input type="number" step="0.01" id="m_sl" value="0" /></label>
+        <label>TP (نرخ)<input type="number" step="0.01" id="m_tp" value="0" /></label>
+      </div>
+      <div class="btn-row">
+        <button class="btn buy" data-act="buy">کڕین BUY</button>
+        <button class="btn sell" data-act="sell">فرۆشتن SELL</button>
+        <button class="btn warn" data-act="close_all">داخستنی هەموو</button>
+      </div>
+
+      <h2>پۆزیشنە کراوەکان</h2>
+      <div class="table-wrap"><table id="posTable">
+        <thead><tr><th>تیکێت</th><th>سیمبول</th><th>لا</th><th>لۆت</th><th>نرخ</th><th>قازانج</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+
+      <h2>فەرمانەکان</h2>
+      <div class="table-wrap"><table id="ordTable">
+        <thead><tr><th>#</th><th>کات</th><th>کردار</th><th>سیمبول</th><th>لۆت</th><th>دۆخ</th><th>تێبینی</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>مێژووی ترەیدەکان</h2>
+      <div class="table-wrap"><table id="trdTable">
+        <thead><tr><th>تیکێت</th><th>سیمبول</th><th>لا</th><th>لۆت</th><th>کردنەوە</th><th>داخستن</th><th>قازانج</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <h2>سیگناڵەکانی TradingView</h2>
+      <div class="table-wrap"><table id="sigTable">
+        <thead><tr><th>#</th><th>کات</th><th>کردار</th><th>سیمبول</th><th>دۆخ</th><th>هۆکار</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <h2>لۆگ</h2>
+      <div id="log" class="log"></div>
+    </section>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
