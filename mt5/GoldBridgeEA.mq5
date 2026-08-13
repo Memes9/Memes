@@ -23,6 +23,12 @@ input int     SlippagePoints = 30;
 input bool    EnableTrading  = true;                    // کلیلی ناوخۆیی
 input bool    PassthroughMode = true;                   // SL/TP وەک خۆی، بەبێ trailing
 
+//--- قەرەبووکردنەوەی سپرێد -----------------------------------------
+input bool    SpreadComp     = true;   // سپرێد بخە سەر SL و TP
+input double  SpreadExtraPts = 0;      // پۆینتی زیادە لەسەر سپرێد (بەتاڵ = تەنها سپرێد)
+input double  SpreadCapPts   = 0;      // زۆرترین سپرێد کە زیاد دەکرێت (0 = بێ سنوور)
+input bool    RespectStopsLevel = true; // ئەگەر SL/TP زۆر نزیک بوو، بیپاڵێوە دەرەوە
+
 CTrade         trade;
 CPositionInfo  pos;
 datetime       lastHeartbeat = 0;
@@ -164,6 +170,37 @@ bool PollOrder()
    if(sl <= 0 && defSlPts > 0) sl = isBuy ? entry - defSlPts * point : entry + defSlPts * point;
    if(tp <= 0 && defTpPts > 0) tp = isBuy ? entry + defTpPts * point : entry - defTpPts * point;
 
+   //--- قەرەبووی سپرێد: هەمان بڕ دەخرێتە سەر SL و TP، ڕێژەی R:R نەگۆڕ دەمێنێتەوە
+   double compPts = 0;
+   if(SpreadComp)
+     {
+      compPts = spread + SpreadExtraPts;
+      if(SpreadCapPts > 0 && compPts > SpreadCapPts) compPts = SpreadCapPts;
+      if(compPts < 0) compPts = 0;
+      double comp = compPts * point;
+      if(sl > 0) sl = isBuy ? sl - comp : sl + comp;
+      if(tp > 0) tp = isBuy ? tp + comp : tp - comp;
+     }
+
+   //--- کەمترین دووری ڕێپێدراوی بڕۆکەر (پاراستنی تەکنیکی، نەک فیلتەری ستراتیژی)
+   if(RespectStopsLevel)
+     {
+      double minDist = (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
+      if(minDist > 0)
+        {
+         if(sl > 0)
+           {
+            if(isBuy  && entry - sl < minDist) sl = entry - minDist;
+            if(!isBuy && sl - entry < minDist) sl = entry + minDist;
+           }
+         if(tp > 0)
+           {
+            if(isBuy  && tp - entry < minDist) tp = entry + minDist;
+            if(!isBuy && entry - tp < minDist) tp = entry - minDist;
+           }
+        }
+     }
+
    //--- قەبارەی لۆت بەپێی مەترسی
    if(volume <= 0)
      {
@@ -176,6 +213,12 @@ bool PollOrder()
 
    //--- پێچەوانەکردن
    if(allowRev) CloseOppositePositions(symbol, isBuy);
+
+   if(SpreadComp)
+      PrintFormat("%s %s | سپرێد=%.0fp زیادکراو=%.0fp | SL=%.*f TP=%.*f | لۆت=%.2f",
+                  clientId, symbol, spread, compPts,
+                  (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS), sl,
+                  (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS), tp, volume);
 
    bool ok = isBuy ? trade.Buy(volume, symbol, 0.0, NormalizePrice(symbol, sl), NormalizePrice(symbol, tp), clientId)
                    : trade.Sell(volume, symbol, 0.0, NormalizePrice(symbol, sl), NormalizePrice(symbol, tp), clientId);
