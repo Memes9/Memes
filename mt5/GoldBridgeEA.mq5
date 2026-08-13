@@ -30,6 +30,9 @@ input double  SpreadExtraPts = 0;      // پۆینتی زیادە لەسەر س�
 input double  SpreadCapPts   = 0;      // زۆرترین سپرێد کە زیاد دەکرێت (0 = بێ سنوور)
 input bool    RespectStopsLevel = true; // ئەگەر SL/TP زۆر نزیک بوو، بیپاڵێوە دەرەوە
 
+//--- مەکینەی مەترسی (یاسای ٣) --------------------------------------
+input bool    RiskOnBalance  = true;   // مەترسی لەسەر باڵانس (نەک ئیکویتی)
+
 //--- پێشوەختە ڕاگەیاندن (MQL5 پێویستی پێیەتی پێش بەکارهێنان)
 bool IsOurMagic(long m);
 bool IsSameLayout(long m, long want);
@@ -213,10 +216,12 @@ bool PollOrder()
         }
      }
 
-   //--- قەبارەی لۆت بەپێی مەترسی
+   //--- قەبارەی لۆت بەپێی مەترسی (یاسای ٣: ١٪ی باڵانس)
+   //    دووری SL ی دوای قەرەبووی سپرێد بەکاردێت — واتا مەترسیی ڕاستەقینە
+   double slDist = MathAbs(entry - sl);
    if(volume <= 0)
      {
-      if(riskPct > 0 && sl > 0) volume = LotByRisk(symbol, riskPct, MathAbs(entry - sl));
+      if(riskPct > 0 && sl > 0) volume = LotByRisk(symbol, riskPct, slDist);
       else                      volume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
      }
    volume = NormalizeVolume(symbol, MathMin(volume, maxLot > 0 ? maxLot : volume));
@@ -226,11 +231,10 @@ bool PollOrder()
    //--- پێچەوانەکردن
    if(allowRev) CloseOppositePositions(symbol, isBuy, useMagic);
 
-   if(SpreadComp)
-      PrintFormat("%s %s | سپرێد=%.0fp زیادکراو=%.0fp | SL=%.*f TP=%.*f | لۆت=%.2f",
-                  clientId, symbol, spread, compPts,
-                  (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS), sl,
-                  (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS), tp, volume);
+   int dg = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   PrintFormat("%s %s tf%s magic=%d | سپرێد=%.0fp+%.0fp | SL=%.*f TP=%.*f | دووری=%.1fp مەترسی=%.2f%% لۆت=%.2f",
+               clientId, symbol, sigTf, useMagic, spread, compPts,
+               dg, sl, dg, tp, slDist / point, riskPct, volume);
 
    bool ok = isBuy ? trade.Buy(volume, symbol, 0.0, NormalizePrice(symbol, sl), NormalizePrice(symbol, tp), clientId)
                    : trade.Sell(volume, symbol, 0.0, NormalizePrice(symbol, sl), NormalizePrice(symbol, tp), clientId);
@@ -280,8 +284,10 @@ double NormalizeVolume(string symbol, double vol)
 double LotByRisk(string symbol, double riskPct, double slDistance)
   {
    if(slDistance <= 0) return 0;
-   double equity   = AccountInfoDouble(ACCOUNT_EQUITY);
-   double riskCash = equity * riskPct / 100.0;
+   // یاسای ٣: مەترسی لەسەر باڵانسی ئێستا (نەک ئیکویتی) دەژمێردرێت
+   double base     = RiskOnBalance ? AccountInfoDouble(ACCOUNT_BALANCE)
+                                   : AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskCash = base * riskPct / 100.0;
    double tickVal  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
    double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
    if(tickVal <= 0 || tickSize <= 0) return 0;

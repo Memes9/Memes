@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "trading_enabled": True,        # کلیلی سەرەکی (kill switch)
-    "risk_pct": 0.5,                # ڕێژەی مەترسی بۆ هەر ترەیدێک (%)
+    "risk_pct": 1.0,                # ڕێژەی مەترسی بۆ هەر ترەیدێک (%) — یاسای ٣
     "fixed_lot": 0.0,               # ئەگەر > 0 بەکاردێت لەبری risk_pct
     "max_lot": 1.0,
     "max_open_positions": 2,
@@ -104,6 +104,16 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "trailing_start_points": 200,
     "trailing_step_points": 100,
     "break_even_points": 0,
+
+    # ── یاسای ٣: مەکینەی مەترسی جێگیرکراو ──────────────────────────
+    #: زۆرترین دووری SL بە پیپ. ئەگەر SL ی سیگناڵ لەمە گەورەتر بێت،
+    #: ئۆردەرەکە پێش ئەوەی بگاتە MT5 ڕەت دەکرێتەوە. 0 = ناچالاک.
+    "max_sl_pips": 51.0,
+    #: ژمارەی پۆینت لە هەر پیپێکدا (ئاڵتون: 1 پیپ = 10 پۆینت = 0.10$)
+    "pip_points": 10.0,
+    #: ١ سیگناڵ = ١ ئۆردەر — ماوەی ڕاگرتنی سیگناڵی دووبارە بە چرکە.
+    #: 0 = تەنها پشکنینی client_id (وەک پێشوو).
+    "debounce_sec": 2.0,
 }
 
 

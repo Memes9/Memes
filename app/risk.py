@@ -46,6 +46,46 @@ def open_positions_count() -> int:
         return 0
 
 
+def sl_distance_pips(signal, s: dict | None = None) -> float:
+    """دووری SL بە پیپ. 0 ئەگەر SL یان entry نەبێت."""
+    s = s if s is not None else db.get_settings()
+    entry = float(signal.price or 0)
+    sl = float(signal.sl or 0)
+    if entry <= 0 or sl <= 0:
+        return 0.0
+    point = _symbol_point(signal.symbol)
+    pip_points = float(s.get("pip_points", 10.0)) or 10.0
+    return abs(entry - sl) / (point * pip_points)
+
+
+def _symbol_point(symbol: str) -> float:
+    """پۆینتی سیمبول. ئاڵتون = 0.01، جووتە فۆرێکسەکان = 0.00001."""
+    sym = (symbol or "").upper()
+    if "XAU" in sym or "GOLD" in sym:
+        return 0.01
+    if "JPY" in sym:
+        return 0.001
+    return 0.00001
+
+
+def check_max_sl(signal, s: dict | None = None) -> tuple[bool, str]:
+    """یاسای ٣ — پاراستنی زۆرترین SL.
+
+    ئەگەر دووری SL ی سیگناڵ لە ``max_sl_pips`` گەورەتر بێت، ئۆردەرەکە
+    ڕەت دەکرێتەوە پێش ئەوەی بگاتە MT5.
+    """
+    s = s if s is not None else db.get_settings()
+    limit = float(s.get("max_sl_pips", 0) or 0)
+    if limit <= 0:
+        return True, "ok"
+    dist = sl_distance_pips(signal, s)
+    if dist <= 0:
+        return True, "ok"  # SL نەنێردراوە — پشکنین ناکرێت
+    if dist > limit:
+        return False, f"SL زۆر گەورەیە ({dist:.1f} پیپ > {limit:.0f} پیپ)"
+    return True, "ok"
+
+
 def check(signal, allowed_symbols: list[str]) -> tuple[bool, str]:
     """گەڕانەوە: (ڕێگەپێدراوە؟, هۆکار)."""
     s = db.get_settings()
@@ -59,9 +99,17 @@ def check(signal, allowed_symbols: list[str]) -> tuple[bool, str]:
     if signal.action in ("close", "close_all", "modify"):
         return True, "ok"  # داخستن هەمیشە ڕێگەپێدراوە
 
+    # ── یاسای ٣: پاراستنی زۆرترین SL ─────────────────────────────────
+    # ئەگەر دووری SL لە سنوور تێپەڕی، ئۆردەرەکە لێرەدا دەوەستێت و
+    # هەرگیز ناگاتە MT5. ئەمە پێش passthrough دەپشکنرێت چونکە
+    # پاراستنی سەرمایەیە نەک فیلتەری ستراتیژی.
+    ok_sl, why_sl = check_max_sl(signal, s)
+    if not ok_sl:
+        return False, why_sl
+
     # ── مۆدی گواستنەوەی تەواو ────────────────────────────────────────
-    # کاتێک چالاک بێت، تەنها kill switch و سیمبول کاردەکەن.
-    # هەموو سیگناڵێک دەبێتە ئۆردەر — بەبێ سنووری پۆزیشن یان ژمارەی ترەید.
+    # کاتێک چالاک بێت، تەنها kill switch و سیمبول و سنووری SL کاردەکەن.
+    # هەموو سیگناڵێکی تر دەبێتە ئۆردەر — بەبێ سنووری پۆزیشن یان ژمارەی ترەید.
     if s.get("laol_passthrough", True):
         return True, "ok (passthrough)"
 

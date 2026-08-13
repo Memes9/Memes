@@ -86,6 +86,7 @@ async def tradingview_webhook(request: Request):
 
 def _process_signal(signal: TVSignal, sig_id: int):
     """پایپلاینی هاوبەش: مەترسی → هاوڕابوون → دروستکردنی فەرمان."""
+    _settings = db.get_settings()
     ok, reason = risk.check(signal, ALLOWED_SYMBOLS)
     if not ok:
         db.execute("UPDATE signals SET status='rejected', reason=? WHERE id=?", (reason, sig_id))
@@ -118,6 +119,33 @@ def _process_signal(signal: TVSignal, sig_id: int):
     if dup:
         db.execute("UPDATE signals SET status='rejected', reason='دووبارە' WHERE id=?", (sig_id,))
         return {"accepted": False, "reason": "ئەم سیگناڵە پێشتر جێبەجێکراوە", "order_id": dup[0]["id"]}
+
+    # ── یاسای ٣: ١ سیگناڵ = ١ ئۆردەر ─────────────────────────────────
+    # ئەگەر TradingView هەمان ئەلێرت چەند جار بنێرێت بەبێ ئەوەی id بگۆڕێت
+    # (بۆ نموونە لەبەر دووبارە هەوڵدانەوە)، تەنها یەکەمیان جێبەجێ دەبێت.
+    # پشکنین: هەمان لەیئاوت + هەمان ئاراستە + هەمان سیمبول لە ماوەیەکی کورتدا.
+    debounce = float(_settings.get("debounce_sec", 0) or 0)
+    if debounce > 0 and signal.action in ("buy", "sell"):
+        recent = db.query(
+            """SELECT id, client_id, ts FROM orders
+               WHERE symbol=? AND action=? AND magic=? AND ts >= ?
+               ORDER BY id DESC LIMIT 1""",
+            (signal.symbol, signal.action, signal.magic, time.time() - debounce),
+        )
+        if recent:
+            db.execute(
+                "UPDATE signals SET status='rejected', reason='debounce' WHERE id=?", (sig_id,)
+            )
+            db.log_event(
+                "warn",
+                f"⏱ debounce: {signal.action} {signal.symbol} tf{signal.tf} "
+                f"— #{recent[0]['id']} پێش {debounce}چ دروستکرا",
+            )
+            return {
+                "accepted": False,
+                "reason": f"١ سیگناڵ = ١ ئۆردەر — ئۆردەرێک لە {debounce} چرکەی ڕابردوودا دروستکراوە",
+                "order_id": recent[0]["id"],
+            }
 
     volume, risk_pct = risk.sizing(signal)
     order_id = db.execute(
