@@ -35,6 +35,38 @@
 
   <div class="grid">
     <section class="panel">
+      <h2>هاوڕابوونی ئیندیکەیتەرەکان (Confluence)</h2>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="confluence_enabled" /><span class="slider"></span></label>
+        <span>پێویستە زیاتر لە ئیندیکەیتەرێک هاوڕا بن</span>
+      </div>
+      <div class="form">
+        <label>شێواز
+          <select id="confluence_mode">
+            <option value="all">هەموویان (AND)</option>
+            <option value="any">یەکێکیان (OR)</option>
+            <option value="weighted">بەپێی خاڵ (Weighted)</option>
+          </select>
+        </label>
+        <label>ماوەی هاوڕابوون (چرکە)<input type="number" id="confluence_window_sec" /></label>
+        <label>کەمترین خاڵ<input type="number" step="0.5" id="confluence_min_score" /></label>
+        <label>سیاسەتی SL
+          <select id="confluence_sl_policy">
+            <option value="widest">دوورترین (پارێزراوتر)</option>
+            <option value="tightest">نزیکترین</option>
+            <option value="last">دوایین سیگناڵ</option>
+          </select>
+        </label>
+        <label>سیاسەتی TP
+          <select id="confluence_tp_policy">
+            <option value="nearest">نزیکترین (زوو دەربچۆ)</option>
+            <option value="farthest">دوورترین</option>
+            <option value="last">دوایین سیگناڵ</option>
+          </select>
+        </label>
+      </div>
+      <div id="voteBoard" class="votes"></div>
+
       <h2>کلیلی سەرەکی</h2>
       <div class="switch-row">
         <label class="switch">
@@ -119,7 +151,7 @@
     <section class="panel">
       <h2>سیگناڵەکانی TradingView</h2>
       <div class="table-wrap"><table id="sigTable">
-        <thead><tr><th>#</th><th>کات</th><th>کردار</th><th>سیمبول</th><th>دۆخ</th><th>هۆکار</th></tr></thead>
+        <thead><tr><th>#</th><th>کات</th><th>سەرچاوە</th><th>کردار</th><th>سیمبول</th><th>دۆخ</th><th>هۆکار</th></tr></thead>
         <tbody></tbody>
       </table></div>
       <h2>لۆگ</h2>

@@ -1,8 +1,10 @@
 const NUM_KEYS = ["risk_pct","fixed_lot","max_lot","max_open_positions","max_trades_per_day",
   "max_daily_loss_pct","max_total_drawdown_pct","max_spread_points","signal_max_age_sec",
   "default_sl_points","default_tp_points","break_even_points","trailing_start_points","trailing_step_points"];
-const BOOL_KEYS = ["trading_enabled","trailing_enabled","allow_reverse","session_filter_enabled"];
+const BOOL_KEYS = ["trading_enabled","trailing_enabled","allow_reverse","session_filter_enabled","confluence_enabled"];
 const TXT_KEYS = ["session_start_utc","session_end_utc"];
+const SEL_KEYS = ["confluence_mode","confluence_sl_policy","confluence_tp_policy"];
+NUM_KEYS.push("confluence_window_sec","confluence_min_score");
 
 let dirty = false;
 document.addEventListener("input", () => { dirty = true; });
@@ -37,7 +39,10 @@ async function refresh() {
     NUM_KEYS.forEach(k => { const e = document.getElementById(k); if (e) e.value = s.settings[k]; });
     BOOL_KEYS.forEach(k => { const e = document.getElementById(k); if (e) e.checked = !!s.settings[k]; });
     TXT_KEYS.forEach(k => { const e = document.getElementById(k); if (e) e.value = s.settings[k]; });
+    SEL_KEYS.forEach(k => { const e = document.getElementById(k); if (e) e.value = s.settings[k]; });
   }
+
+  renderVotes(s.confluence);
 
   fill("posTable", pos, p => `<td>${p.ticket ?? "—"}</td><td>${p.symbol ?? ""}</td>
     <td>${p.side ?? p.type ?? ""}</td><td>${fmt(p.volume, 2)}</td>
@@ -53,12 +58,47 @@ async function refresh() {
     <td>${fmt(x.volume, 2)}</td><td>${fmt(x.open_price, 2)}</td><td>${fmt(x.close_price, 2)}</td>
     <td class="${cls(x.profit)}">${fmt(x.profit)}</td>`);
 
-  fill("sigTable", s.signals, g => `<td>${g.id}</td><td>${t(g.ts)}</td><td>${g.action || ""}</td>
-    <td>${g.symbol || ""}</td><td><span class="st st-${g.status}">${g.status}</span></td>
+  fill("sigTable", s.signals, g => `<td>${g.id}</td><td>${t(g.ts)}</td>
+    <td>${g.source || ""}</td><td>${g.action || ""}</td><td>${g.symbol || ""}</td><td><span class="st st-${g.status}">${g.status}</span></td>
     <td>${g.reason || ""}</td>`);
 
   document.getElementById("log").innerHTML = s.events
     .map(e => `<div>[${t(e.ts)}] ${e.level.toUpperCase()} — ${e.message}</div>`).join("");
+}
+
+function renderVotes(cf) {
+  const box = document.getElementById("voteBoard");
+  if (!cf) { box.innerHTML = ""; return; }
+  const sources = Object.keys(cf.sources || {});
+  if (!cf.enabled) {
+    box.innerHTML = `<div class="vote-note">Confluence ناچالاکە — هەر سیگناڵێک بەتەنیا ترەید دەکات.</div>`;
+    return;
+  }
+  if (!sources.length) {
+    box.innerHTML = `<div class="vote-note warn-note">⚠ هیچ سەرچاوەیەک پێناسە نەکراوە — <code>confluence_sources</code> ڕێک بخە.</div>`;
+    return;
+  }
+  const cards = sources.map(src => {
+    const v = (cf.live_votes || {})[src];
+    if (!v) return `<div class="vote idle"><b>${src}</b><span>چاوەڕوان</span></div>`;
+    const dir = v.action === "buy" ? "buy" : "sell";
+    const label = v.action === "buy" ? "کڕین" : "فرۆشتن";
+    return `<div class="vote ${dir}"><b>${src}</b><span>${label} · ${v.age_sec}s</span></div>`;
+  }).join("");
+
+  const votes = Object.values(cf.live_votes || {});
+  const buys = votes.filter(v => v.action === "buy").length;
+  const sells = votes.filter(v => v.action === "sell").length;
+  let verdict = "چاوەڕوانی سیگناڵ";
+  let vcls = "idle";
+  if (cf.mode === "all" && buys === sources.length) { verdict = "✓ هەموویان: کڕین"; vcls = "buy"; }
+  else if (cf.mode === "all" && sells === sources.length) { verdict = "✓ هەموویان: فرۆشتن"; vcls = "sell"; }
+  else if (buys && sells) { verdict = "✗ ناکۆکی نێوان ئیندیکەیتەرەکان"; vcls = "conflict"; }
+  else if (buys || sells) { verdict = `بەشێکی هاوڕان (${buys + sells}/${sources.length})`; vcls = "idle"; }
+
+  box.innerHTML = `<div class="vote-grid">${cards}</div>
+    <div class="verdict ${vcls}">${verdict}</div>
+    <div class="vote-note">ماوەی هاوڕابوون: ${cf.window_sec} چرکە · شێواز: ${cf.mode}</div>`;
 }
 
 function fill(id, rows, render) {
@@ -72,6 +112,7 @@ document.getElementById("saveBtn").onclick = async () => {
   NUM_KEYS.forEach(k => { const e = document.getElementById(k); if (e) patch[k] = parseFloat(e.value) || 0; });
   BOOL_KEYS.forEach(k => { const e = document.getElementById(k); if (e) patch[k] = e.checked; });
   TXT_KEYS.forEach(k => { const e = document.getElementById(k); if (e) patch[k] = e.value; });
+  SEL_KEYS.forEach(k => { const e = document.getElementById(k); if (e) patch[k] = e.value; });
   await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
   dirty = false;
   const m = document.getElementById("saveMsg");

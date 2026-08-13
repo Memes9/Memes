@@ -1,0 +1,84 @@
+//@version=5
+// ══════════════════════════════════════════════════════════════════
+//  BETA 2.5 — LAOL STRATEGY (FIXED)  →  GoldBridge
+//
+//  ⚠ ڕێنمایی گرنگ:
+//  ئەم فایلە تەنها **بەشی ناردنی سیگناڵ**ـە. لۆجیکی ئیندیکەیتەرەکەت
+//  دەستکاری ناکرێت. کارەکە ئاسانە:
+//
+//   ١) ئیندیکەیتەری ئۆرجیناڵی BETA 2.5 بکەرەوە لە Pine Editor.
+//   ٢) ئەم بەشانەی خوارەوە کۆپی بکە بۆ **کۆتایی** کۆدەکە.
+//   ٣) دوا هەنگاو: گۆڕاوی سیگناڵەکانی خۆت پەیوەست بکە بە
+//      `gb_long` و `gb_short` ـەوە (لە خوارەوە نیشان دراوە).
+// ══════════════════════════════════════════════════════════════════
+
+// ─────────────── ١) ڕێکخستنەکانی GoldBridge ───────────────
+gb_secret = input.string("change-me-tradingview-secret", "🔑 Webhook Secret",
+     group = "GoldBridge")
+// ⚠ ئەم ناوە دەبێت دەقاودەق لە داشبۆردیشدا هەمان بێت
+gb_source = input.string("laol-beta25", "🏷 ناوی سەرچاوە (strategy)",
+     group = "GoldBridge",
+     tooltip = "ئەمە ناسنامەی ئەم ئیندیکەیتەرەیە لە سیستەمی confluence دا")
+gb_risk   = input.float(0.5, "مەترسی %", step = 0.1, group = "GoldBridge")
+
+gb_useAtr = input.bool(true,  "SL/TP بە ATR حیساب بکە", group = "SL / TP")
+gb_atrLen = input.int(14,     "درێژی ATR",              group = "SL / TP")
+gb_atrMlt = input.float(1.5,  "ATR بۆ SL", step = 0.1,  group = "SL / TP")
+gb_rr     = input.float(2.0,  "Risk : Reward", step = 0.1, group = "SL / TP")
+
+gb_atr = ta.atr(gb_atrLen)
+
+// ─────────────── ٢) دروستکردنی پەیامی JSON ───────────────
+gb_msg(_action, _sl, _tp) =>
+    '{"secret":"'     + gb_secret +
+    '","action":"'    + _action +
+    '","symbol":"'    + syminfo.ticker +
+    '","price":'      + str.tostring(close, "#.###") +
+    ',"sl":'          + str.tostring(_sl, "#.###") +
+    ',"tp":'          + str.tostring(_tp, "#.###") +
+    ',"risk_pct":'    + str.tostring(gb_risk) +
+    ',"strategy":"'   + gb_source +
+    '","signal_id":"' + gb_source + "-" + str.tostring(time) + "-" + _action +
+    '","time":"'      + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ss'Z'", "UTC") +
+    '"}'
+
+// ─────────────── ٣) ناردنی سیگناڵ ───────────────
+// ⬇⬇⬇ لێرەدا گۆڕاوەکانی خۆت دابنێ ⬇⬇⬇
+//
+//   نموونە: ئەگەر ئیندیکەیتەرەکەت گۆڕاوی `buySignal` و `sellSignal` ی
+//   هەیە، تەنها بیانگۆڕە بۆ:
+//        gb_long  = buySignal
+//        gb_short = sellSignal
+//
+gb_long  = false   // ← جێگۆڕکێی بکە بە شەرتی کڕینی BETA 2.5
+gb_short = false   // ← جێگۆڕکێی بکە بە شەرتی فرۆشتنی BETA 2.5
+
+gb_slLong  = gb_useAtr ? close - gb_atr * gb_atrMlt : na
+gb_tpLong  = gb_useAtr ? close + gb_atr * gb_atrMlt * gb_rr : na
+gb_slShort = gb_useAtr ? close + gb_atr * gb_atrMlt : na
+gb_tpShort = gb_useAtr ? close - gb_atr * gb_atrMlt * gb_rr : na
+
+if gb_long
+    alert(gb_msg("buy",  nz(gb_slLong, 0),  nz(gb_tpLong, 0)),
+          alert.freq_once_per_bar_close)
+
+if gb_short
+    alert(gb_msg("sell", nz(gb_slShort, 0), nz(gb_tpShort, 0)),
+          alert.freq_once_per_bar_close)
+
+// ─────────────── ٤) نیشانەی بیستراوی سیگناڵ ───────────────
+plotshape(gb_long,  title = "GB Long",  style = shape.labelup,
+     location = location.belowbar, color = color.new(color.lime, 20),
+     text = "GB▲", textcolor = color.white, size = size.tiny)
+plotshape(gb_short, title = "GB Short", style = shape.labeldown,
+     location = location.abovebar, color = color.new(color.red, 20),
+     text = "GB▼", textcolor = color.white, size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════════
+//  دروستکردنی ئەلێرت لە TradingView:
+//    Alert → Condition = ئەم ئیندیکەیتەرە → "Any alert() function call"
+//    Trigger  = Once Per Bar Close     ← زۆر گرنگە (بۆ نەبوونی repaint)
+//    Expiration = Open-ended
+//    Notifications → Webhook URL:
+//        https://your-server.com/webhook/tradingview
+// ══════════════════════════════════════════════════════════════════

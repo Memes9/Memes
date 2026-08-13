@@ -129,6 +129,12 @@ def init_db() -> None:
         _conn.commit()
 
 
+def execute_script(sql: str) -> None:
+    with _lock:
+        _conn.executescript(sql)
+        _conn.commit()
+
+
 def query(sql: str, args: tuple = ()) -> list[dict]:
     with _lock:
         cur = _conn.execute(sql, args)
@@ -155,8 +161,9 @@ def get_settings() -> dict:
 
 
 def set_settings(patch: dict) -> dict:
+    known = set(DEFAULT_SETTINGS) | {r["key"] for r in query("SELECT key FROM settings")}
     for k, v in patch.items():
-        if k not in DEFAULT_SETTINGS:
+        if k not in known:
             continue
         execute(
             "INSERT INTO settings(key, value) VALUES (?,?) "

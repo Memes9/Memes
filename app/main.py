@@ -21,7 +21,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, risk
+from . import confluence, db, risk
 from .models import AccountReport, ExecReport, TVSignal
 
 load_dotenv()
@@ -40,6 +40,7 @@ app = FastAPI(title="GoldBridge", version="1.0.0")
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+    confluence.init()
     db.log_event("info", "GoldBridge server started")
 
 
@@ -76,7 +77,7 @@ async def tradingview_webhook(request: Request):
 
     sig_id = db.execute(
         "INSERT INTO signals(ts, source, raw, symbol, action, status) VALUES (?,?,?,?,?,?)",
-        (time.time(), "tradingview", raw, signal.symbol, signal.action, "received"),
+        (time.time(), signal.strategy or "tradingview", raw, signal.symbol, signal.action, "received"),
     )
 
     ok, reason = risk.check(signal, ALLOWED_SYMBOLS)
@@ -84,6 +85,26 @@ async def tradingview_webhook(request: Request):
         db.execute("UPDATE signals SET status='rejected', reason=? WHERE id=?", (reason, sig_id))
         db.log_event("warn", f"سیگناڵ ڕەتکرایەوە: {reason}")
         return JSONResponse({"accepted": False, "reason": reason}, status_code=200)
+
+    # --- confluence: چاوەڕوانی هاوڕابوونی ئیندیکەیتەرەکان ---
+    if signal.action in ("buy", "sell"):
+        agreed, cf_reason, cf_info = confluence.evaluate(signal)
+        if not agreed:
+            db.execute(
+                "UPDATE signals SET status='waiting', reason=? WHERE id=?",
+                (f"confluence: {cf_reason}", sig_id),
+            )
+            db.log_event("info", f"سیگناڵ لە چاوەڕوانیدا ({signal.strategy}): {cf_reason}")
+            return JSONResponse(
+                {"accepted": False, "waiting": True, "reason": cf_reason, "confluence": cf_info},
+                status_code=200,
+            )
+        signal.sl, signal.tp = confluence.merge_levels(signal, cf_info)
+        if cf_info:
+            db.log_event(
+                "info",
+                f"✓ هاوڕابوون {signal.action.upper()} — {', '.join(cf_info.get('agreeing', []))}",
+            )
 
     client_id = signal.signal_id or f"{signal.strategy}-{sig_id}-{uuid.uuid4().hex[:8]}"
     # idempotency: هەمان signal_id دوو جار ترەید ناکات
@@ -213,6 +234,7 @@ def state():
         "settings": db.get_settings(),
         "account": acc,
         "daily": risk.daily_stats(),
+        "confluence": confluence.status(ALLOWED_SYMBOLS[0] if ALLOWED_SYMBOLS else "XAUUSD"),
         "connected": bool(acc and time.time() - acc["ts"] < 30),
         "orders": db.query("SELECT * FROM orders ORDER BY id DESC LIMIT 25"),
         "signals": db.query("SELECT * FROM signals ORDER BY id DESC LIMIT 25"),
@@ -243,6 +265,29 @@ def update_settings(patch: dict = Body(...)):
     out = db.set_settings(patch)
     db.log_event("info", f"ڕێکخستن نوێکرایەوە: {list(patch.keys())}")
     return out
+
+
+@app.post("/api/confluence/sources")
+def set_sources(payload: dict = Body(...)):
+    """
+    پێناسەکردنی سەرچاوەکان و کێشیان، نموونە:
+        {"sources": {"laol-beta1": 1.0, "laol-beta25": 1.5}}
+    ناوەکان دەبێت هەمان `strategy` ی ناو پەیامی TradingView بن.
+    """
+    src = payload.get("sources", {})
+    if not isinstance(src, dict):
+        raise HTTPException(422, "sources دەبێت object بێت")
+    db.set_settings({"confluence_sources": {str(k): float(v) for k, v in src.items()}})
+    db.log_event("info", f"سەرچاوەکانی confluence: {list(src.keys())}")
+    return confluence.status()
+
+
+@app.post("/api/confluence/reset")
+def reset_votes():
+    """سڕینەوەی هەموو دەنگە چاوەڕوانەکان."""
+    db.execute("UPDATE votes SET consumed=1 WHERE consumed=0")
+    db.log_event("info", "دەنگەکانی confluence سڕانەوە")
+    return {"ok": True}
 
 
 @app.post("/api/panic")
