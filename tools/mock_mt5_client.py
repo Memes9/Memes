@@ -18,6 +18,9 @@ p.add_argument("--token", default="change-me-ea-token")
 args = p.parse_args()
 
 BASE, TOKEN = args.url.rstrip("/"), args.token
+
+LONG_POLL_MS = 800   # چاوەڕوانی سێرڤەر بۆ سیگناڵی نوێ (وەک EA)
+POLL_SEC = 0.1       # ماوەی سووڕ کاتێک long-poll هیچی نەگەڕاندەوە
 balance, equity = 10_000.0, 10_000.0
 positions: list[dict] = []
 next_ticket = 500_001
@@ -30,12 +33,23 @@ def tick() -> float:
     return price
 
 
+last_hb = 0.0
+
+
 def main() -> None:
-    global next_ticket, balance, equity
     c = httpx.Client(timeout=8)
-    last_hb = 0.0
     print(f"Mock MT5 executor -> {BASE}")
     while True:
+        try:
+            _cycle(c)
+        except httpx.HTTPError as e:
+            # سێرڤەر ڕیستارت کراوە یان تۆڕ کەوتووە — دووبارە هەوڵ بدەرەوە
+            print(f"  ! پەیوەندی نەبوو ({type(e).__name__}) — دووبارە هەوڵ دەدەم")
+            time.sleep(1.0)
+
+
+def _cycle(c: httpx.Client) -> None:
+        global next_ticket, balance, equity, last_hb
         px = tick()
         for pos in positions:
             sign = 1 if pos["side"] == "buy" else -1
@@ -51,8 +65,12 @@ def main() -> None:
             })
             last_hb = time.time()
 
-        for _ in range(10):
-            r = c.get(f"{BASE}/api/orders/next", params={"token": TOKEN}).json()
+        for _i in range(10):
+            # long-polling لە یەکەم داواکاریدا — وەک EA ی ڕاستەقینە
+            params = {"token": TOKEN}
+            if _i == 0:
+                params["wait_ms"] = LONG_POLL_MS
+            r = c.get(f"{BASE}/api/orders/next", params=params).json()
             if not r.get("has_order"):
                 break
             o = r["order"]
@@ -78,7 +96,7 @@ def main() -> None:
                 c.post(f"{BASE}/api/orders/report", json={
                     "token": TOKEN, "client_id": cid, "status": "filled",
                     "ticket": pos["ticket"], "fill_price": px})
-        time.sleep(1.5)
+        time.sleep(POLL_SEC)
 
 
 if __name__ == "__main__":

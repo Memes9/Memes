@@ -75,6 +75,27 @@ def drain() -> list[dict]:
     return out
 
 
+def ensure_sole_consumer() -> None:
+    """دڵنیابوونەوە لەوەی EA/mock ی تر ئۆردەرەکان نافڕێنێت.
+
+    ئەم تاقیکەرەوەیە پێویستی بە خوێندنەوەی ناوەڕۆکی ئۆردەرەکانە، بۆیە
+    دەبێت تەنها بەکارهێنەری ڕیزی ئۆردەر بێت. ئەگەر mock یان EA کاربکات
+    ئەوان ئۆردەرەکان دەبەن و پشکنینەکان بەهەڵە شکست دەهێنن.
+    """
+    drain()
+    probe = f"probe-{int(time.time() * 1000)}"
+    send(probe, "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0)
+    time.sleep(0.6)
+    if not drain():
+        print(
+            "\033[31m\033[1m  ✗ بەکارهێنەرێکی تری ئۆردەر کاردەکات\033[0m\n"
+            "    mock یان EA ئۆردەرەکان دەفڕێنێت پێش ئەم تاقیکەرەوەیە.\n"
+            "    سەرەتا بیوەستێنە:  pkill -f mock_mt5_client\n"
+            "    پاشان دووبارە:      .venv/bin/python3 tools/verify_all.py"
+        )
+        sys.exit(2)
+
+
 def reset_defaults() -> None:
     settings({
         "lot_mode": "percent", "balance_pct": 1.0, "fixed_lot": 0.01, "max_lot": 1.0,
@@ -95,6 +116,7 @@ def reset_defaults() -> None:
 def main() -> int:
     n = int(time.time())
     reset_defaults()
+    ensure_sole_consumer()
     drain()
 
     # ─── یاسای ١: هەموو سیگناڵێک دەبێتە ئۆردەر ────────────────────
@@ -162,11 +184,22 @@ def main() -> int:
     time.sleep(2.2)
     d1 = send(f"v{n}-e1", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0)
     d2 = send(f"v{n}-e2", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0)
-    check("١ سیگناڵ = ١ ئۆردەر", d1.get("accepted") and not d2.get("accepted"))
+    check("هەمان سیگناڵ دوو جار → یەک ئۆردەر",
+          d1.get("accepted") and not d2.get("accepted"))
     d3 = send(f"v{n}-e3", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0, tf="3")
     check("لەیئاوتی جیاواز بلۆک ناکرێت", d3.get("accepted"))
     d4 = send(f"v{n}-e4", "BEAR_CONFIRMED", "SELL", 3360.0, 3361.0, 3352.0)
     check("ئاراستەی پێچەوانە بلۆک ناکرێت", d4.get("accepted"))
+
+    # ٣ سیگناڵی جیاواز لە هەمان خولەکدا — هەر سێکیان دەبێت بچنە ژوورەوە
+    t = [send(f"v{n}-m{k}", "BULL_CONFIRMED", "BUY", 3360.0,
+              3359.0 - k * 0.1, 3368.0 + k * 0.1) for k in (1, 2, 3)]
+    check("٣ سیگناڵی جیاواز لە هەمان خولەکدا → ٣ ئۆردەر",
+          all(x.get("accepted") for x in t),
+          " ".join(f"#{x.get('order_id')}" for x in t))
+    check("هەر ئۆردەرێک SL/TP ی خۆی هەیە",
+          len({x.get("order_id") for x in t}) == 3)
+
     time.sleep(2.2)
     d5 = send(f"v{n}-e5", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0)
     check("دوای ماوەکە قبوڵ دەکرێتەوە", d5.get("accepted"))

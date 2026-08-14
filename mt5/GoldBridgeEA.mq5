@@ -16,7 +16,8 @@
 //--- inputs -------------------------------------------------------
 input string  ServerURL      = "http://127.0.0.1:8000"; // ناونیشانی سێرڤەر
 input string  EAToken        = "change-me-ea-token";    // EA_TOKEN
-input int     PollMs         = 1500;                    // ماوەی پرسیارکردن (میلی چرکە)
+input int     PollMs         = 100;                     // ماوەی پرسیارکردن (میلی چرکە)
+input int     LongPollMs     = 800;                      // چاوەڕوانی سێرڤەر بۆ سیگناڵی نوێ (0 = ناچالاک)
 input int     HeartbeatSec   = 5;                       // ناردنی دۆخی هەژمار
 input long    MagicNumber    = 990011;   // بنەڕەت — ئەگەر سیگناڵ خۆی magic نەنێرێت
 input bool    UseSignalMagic = true;     // magicـی سیگناڵ بەکاربهێنە (جیاکردنەوەی 1m/3m)
@@ -59,7 +60,7 @@ input double  Tier2LockPct    = 3.0;    // SL بخرێتە چەند ٪ی TP قا
 input double  Tier2ClosePct   = 50.0;   // چەند ٪ی لۆت دابخرێت
 
 //--- پێشوەختە ڕاگەیاندن (MQL5 پێویستی پێیەتی پێش بەکارهێنان)
-bool PollOrder();
+bool PollOrder(int waitMs = 0);
 void ManageOpenPositions();
 void SendAccountReport();
 void CloseAll();
@@ -130,10 +131,11 @@ void OnTimer()
      }
    ManageOpenPositions();
 
-   // لە مۆدی passthrough دا ڕەنگە چەند سیگناڵێک پێکەوە بێن.
-   // تا ١٠ فەرمان لە هەر سووڕێکدا جێبەجێ دەکەین تا هیچیان دوا نەکەوێت.
+   // یەکەم داواکاری بە long-polling: سێرڤەر ڕادەوەستێت تا سیگناڵ دێت،
+   // بۆیە ئۆردەرەکە لە چەند میلیچرکەیەکدا دەگات نەک لە سووڕی داهاتوودا.
+   // ئەگەر ئۆردەری زیاتر چاوەڕوان بێت، بەبێ چاوەڕوانی دەیانهێنین.
    for(int k = 0; k < 10; k++)
-      if(!PollOrder())
+      if(!PollOrder(k == 0 ? LongPollMs : 0))
          break;
   }
 
@@ -197,9 +199,15 @@ bool   JsonHas(string json, string key)  { return (StringFind(json, "\"" + key +
 //+------------------------------------------------------------------+
 //| وەرگرتنی فەرمانی داهاتوو                                          |
 //+------------------------------------------------------------------+
-bool PollOrder()
+bool PollOrder(int waitMs)
   {
-   string resp = HttpGet(ServerURL + "/api/orders/next?token=" + EAToken);
+   // long-polling: سێرڤەر ڕادەوەستێت تا سیگناڵ دێت، بۆیە ئۆردەرەکە
+   // یەکسەر دەگات بەبێ چاوەڕوانی سووڕی داهاتوو.
+   // تەنها لە یەکەم داواکاریدا؛ ئەگەر ئۆردەری زیاتر چاوەڕوان بێت
+   // بەبێ چاوەڕوانی دەیهێنین.
+   string url = ServerURL + "/api/orders/next?token=" + EAToken;
+   if(waitMs > 0) url += "&wait_ms=" + IntegerToString(waitMs);
+   string resp = HttpGet(url);
    if(resp == "" || StringFind(resp, "\"has_order\":true") < 0) return false;
 
    string clientId  = JsonStr(resp, "client_id");

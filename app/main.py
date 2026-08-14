@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -32,6 +33,10 @@ ALLOWED_SYMBOLS = [s.strip() for s in os.getenv("ALLOWED_SYMBOLS", "").split(","
 #: فەرمانی نەبردراو دوای ئەم ماوەیە بەدەر دەچێت (چرکە).
 #: لە مۆدی passthrough دا بەرزە تا هیچ سیگناڵێک بێدەنگ نەفەوتێت.
 ORDER_TTL_SEC = int(os.getenv("ORDER_TTL_SEC", "900"))
+
+#: یەکسەر ئاگادارکردنەوەی EA کاتێک ئۆردەرێکی نوێ دروست دەبێت.
+#: بەبێ ئەمە EA دەبێت چاوەڕێی سووڕی داهاتووی پۆڵینگ بکات.
+_new_order_event = threading.Event()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "web"
@@ -121,18 +126,29 @@ def _process_signal(signal: TVSignal, sig_id: int):
         return {"accepted": False, "reason": "ئەم سیگناڵە پێشتر جێبەجێکراوە", "order_id": dup[0]["id"]}
 
     # ── یاسای ٣: ١ سیگناڵ = ١ ئۆردەر ─────────────────────────────────
-    # ئەگەر TradingView هەمان ئەلێرت چەند جار بنێرێت بەبێ ئەوەی id بگۆڕێت
-    # (بۆ نموونە لەبەر دووبارە هەوڵدانەوە)، تەنها یەکەمیان جێبەجێ دەبێت.
-    # پشکنین: هەمان لەیئاوت + هەمان ئاراستە + هەمان سیمبول لە ماوەیەکی کورتدا.
+    # مەبەست: ئەگەر TradingView **هەمان ئەلێرت** چەند جار بنێرێت
+    # (دووبارە هەوڵدانەوەی تۆڕ)، تەنها یەک ئۆردەر دروست بێت.
+    #
+    # زۆر گرنگ: سیگناڵی **جیاواز** هەرگیز بلۆک ناکرێت. ئەگەر ئیندیکەیتەر
+    # سێ سیگناڵ لە سێ خولەکدا بنێرێت، هەر سێکیان دەبنە سێ ئۆردەری
+    # سەربەخۆ لەگەڵ SL/TP ی خۆیان. بۆیە پشکنینەکە لەسەر **ناسنامەی
+    # سیگناڵ** ە (client_id) نەک لەسەر سیمبول+ئاراستە.
+    #
+    # پشکنینی سەرەکی (client_id) لە سەرەوە کراوە. ئەمە تەنها ئەو
+    # حاڵەتە دەگرێت کە ئیندیکەیتەر id ی دووبارە بنێرێت بەڵام بە
+    # SL/TP ی جیاواز — ئەوسا هەردووکیان هەمان سیگناڵن.
     debounce = float(_settings.get("debounce_sec", 0) or 0)
     if not _settings.get("debounce_enabled", True):
         debounce = 0
     if debounce > 0 and signal.action in ("buy", "sell"):
         recent = db.query(
-            """SELECT id, client_id, ts FROM orders
-               WHERE symbol=? AND action=? AND magic=? AND ts >= ?
-               ORDER BY id DESC LIMIT 1""",
-            (signal.symbol, signal.action, signal.magic, time.time() - debounce),
+            """SELECT o.id, o.client_id, o.ts FROM orders o
+               WHERE o.symbol=? AND o.action=? AND o.magic=?
+                 AND o.price=? AND o.sl=? AND o.tp=?
+                 AND o.ts >= ?
+               ORDER BY o.id DESC LIMIT 1""",
+            (signal.symbol, signal.action, signal.magic,
+             signal.price, signal.sl, signal.tp, time.time() - debounce),
         )
         if recent:
             db.execute(
@@ -141,11 +157,14 @@ def _process_signal(signal: TVSignal, sig_id: int):
             db.log_event(
                 "warn",
                 f"⏱ debounce: {signal.action} {signal.symbol} tf{signal.tf} "
-                f"— #{recent[0]['id']} پێش {debounce}چ دروستکرا",
+                f"sl={signal.sl} tp={signal.tp} — وێنەی #{recent[0]['id']}",
             )
             return {
                 "accepted": False,
-                "reason": f"١ سیگناڵ = ١ ئۆردەر — ئۆردەرێک لە {debounce} چرکەی ڕابردوودا دروستکراوە",
+                "reason": (
+                    "١ سیگناڵ = ١ ئۆردەر — هەمان سیگناڵ "
+                    f"(هەمان SL/TP) لە {debounce} چرکەی ڕابردوودا هات"
+                ),
                 "order_id": recent[0]["id"],
             }
 
@@ -159,6 +178,8 @@ def _process_signal(signal: TVSignal, sig_id: int):
          signal.magic, signal.tf, time.time()),
     )
     db.execute("UPDATE signals SET status='queued' WHERE id=?", (sig_id,))
+    # ئاگادارکردنەوەی یەکسەری EA — بەبێ چاوەڕوانی سووڕی داهاتوو
+    _new_order_event.set()
     db.log_event(
         "info",
         f"فەرمان دروستکرا #{order_id} {signal.action} {signal.symbol}"
@@ -222,8 +243,13 @@ def _check_ea(token: str) -> None:
 
 
 @app.get("/api/orders/next")
-def next_order(token: str):
-    """EA هەموو 1–3 چرکەیەک لێرە دەپرسێت: فەرمانی نوێ هەیە؟"""
+def next_order(token: str, wait_ms: int = 0):
+    """EA لێرە دەپرسێت: فەرمانی نوێ هەیە؟
+
+    ``wait_ms`` > 0 بێت، داواکارییەکە **ڕادەوەستێت** تا ئۆردەرێک دێت
+    (long-polling). ئەمە کاتی وەڵامدانەوە لە ماوەی پۆڵینگەوە دەگۆڕێت
+    بۆ چەند میلیچرکەیەک — پێویستە بۆ تایمفرەیمی بچووک.
+    """
     _check_ea(token)
     # بەسەرچوونی فەرمانە کۆنەکان
     db.execute(
@@ -232,6 +258,21 @@ def next_order(token: str):
         (time.time() - ORDER_TTL_SEC,),
     )
     rows = db.query("SELECT * FROM orders WHERE status='pending' ORDER BY id ASC LIMIT 1")
+
+    # long-polling: چاوەڕوانی سیگناڵی نوێ بەبێ پۆڵینگی بەردەوام
+    if not rows and wait_ms > 0:
+        deadline = time.monotonic() + min(wait_ms, 30_000) / 1000.0
+        while time.monotonic() < deadline:
+            # ئیڤێنتەکە یەکسەر لەلایەن وێبهۆکەوە دەتەقێنرێتەوە
+            remaining = deadline - time.monotonic()
+            if _new_order_event.wait(timeout=min(remaining, 0.05)):
+                _new_order_event.clear()
+            rows = db.query(
+                "SELECT * FROM orders WHERE status='pending' ORDER BY id ASC LIMIT 1"
+            )
+            if rows:
+                break
+
     if not rows:
         return {"has_order": False, "pending": 0}
     pending_left = db.query("SELECT COUNT(*) c FROM orders WHERE status='pending'")[0]["c"]
