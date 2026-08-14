@@ -162,6 +162,20 @@ def main() -> int:
     settings({"magic_1m": 777001})
     mx = send(f"v{n}-mx", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0, tf="1")
     check("magic_1m گۆڕاوە", mx.get("magic") == 777001, str(mx.get("magic")))
+
+    # ژمارە magicەکان دەبێت بگەنە EA. بەبێ ئەمان IsOurMagic تەنها
+    # مەودای 990000-990999 دەناسێتەوە و Tier 1/2 لەسەر magicی
+    # دەستکردی ترەیدەر (وەک 777001) هەرگیز کار ناکات.
+    om = drain()
+    mrow = [x for x in om if x.get("magic") == 777001]
+    check("magicی دەستکرد دەگاتە EA",
+          bool(mrow) and mrow[0].get("magic_1m") == 777001,
+          f"magic_1m={mrow[0].get('magic_1m') if mrow else '?'}")
+    check("magic_3m و magic_default دەگەن",
+          bool(mrow) and mrow[0].get("magic_3m") == 990003
+          and mrow[0].get("magic_default") == 990000,
+          f"{mrow[0].get('magic_3m') if mrow else '?'} / "
+          f"{mrow[0].get('magic_default') if mrow else '?'}")
     settings({"magic_1m": 990001})
 
     # ─── یاسای ٣: فیلتەری SL ──────────────────────────────────────
@@ -199,6 +213,16 @@ def main() -> int:
           " ".join(f"#{x.get('order_id')}" for x in t))
     check("هەر ئۆردەرێک SL/TP ی خۆی هەیە",
           len({x.get("order_id") for x in t}) == 3)
+
+    # دوو ئیندیکەیتەری جیاواز کە هەمان setup دەدۆزنەوە → دوو ئۆردەر
+    time.sleep(2.2)
+    c1 = send(f"v{n}-c1", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0,
+              source="laol-beta1")
+    c2 = send(f"v{n}-c2", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0,
+              source="laol-beta25")
+    check("BETA 1 و BETA 2.5 بە هەمان setup → دوو ئۆردەر",
+          c1.get("accepted") and c2.get("accepted"),
+          f"#{c1.get('order_id')} / #{c2.get('order_id')}")
 
     time.sleep(2.2)
     d5 = send(f"v{n}-e5", "BULL_CONFIRMED", "BUY", 3360.0, 3359.0, 3368.0)

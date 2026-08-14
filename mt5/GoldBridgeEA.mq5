@@ -86,6 +86,34 @@ bool   g_respectStops;
 bool   g_progressionOn;
 double g_t1Trigger, g_t1Lock, g_t2Trigger, g_t2Lock, g_t2Close;
 
+//--- ژمارە magicەکانی سێرڤەر ---------------------------------------
+// EA پێویستە پۆزیشنەکانی خۆی بناسێتەوە بۆ ئەوەی SL بجوڵێنێت.
+// پێشتر مەودایەکی ڕەق (990000-990999) بەکاردەهات، بەڵام ئەگەر
+// ترەیدەر لە داشبۆردەوە magic بگۆڕێت بۆ نموونە 777001، ئەو
+// پۆزیشنانە بێ‌بەخێو دەمانەوە: Tier 1/2 هەرگیز کاریان لەسەر ناکات.
+//
+// ئێستا EA هەموو ئەو magicانە تۆمار دەکات کە خۆی بەکاریان دەهێنێت،
+// بۆیە هەر ژمارەیەک کاردەکات.
+#define MAX_KNOWN_MAGICS 64
+long g_knownMagics[MAX_KNOWN_MAGICS];
+int  g_knownCount = 0;
+
+//--- تۆمارکردنی magicێک وەک هی خۆمان
+void RememberMagic(long m)
+  {
+   if(m <= 0) return;
+   for(int i = 0; i < g_knownCount; i++)
+      if(g_knownMagics[i] == m) return;
+   if(g_knownCount >= MAX_KNOWN_MAGICS)
+     {
+      // ڕیزەکە پڕە — کۆنترین لابدە
+      for(int i = 1; i < MAX_KNOWN_MAGICS; i++)
+         g_knownMagics[i - 1] = g_knownMagics[i];
+      g_knownCount = MAX_KNOWN_MAGICS - 1;
+     }
+   g_knownMagics[g_knownCount++] = m;
+  }
+
 //--- دانانی بەهای بنەڕەت لە inputەکانەوە
 void ResetEffectiveSettings()
   {
@@ -113,6 +141,10 @@ int OnInit()
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetTypeFillingBySymbol(_Symbol);
+
+   // ژمارە magicەکان لە یەکەم وەڵامی سێرڤەرەوە دێن (magic_1m،
+   // magic_3m، magic_default)، بۆیە دوای ڕیستارتیش Tier 1/2
+   // پۆزیشنە کۆنەکان دەناسنەوە.
    EventSetMillisecondTimer(PollMs);
    Print("GoldBridge EA started -> ", ServerURL);
    return(INIT_SUCCEEDED);
@@ -247,11 +279,20 @@ bool PollOrder(int waitMs)
          g_t2Lock        = JsonNum(resp, "tier2_lock_pct");
          g_t2Close       = JsonNum(resp, "tier2_close_pct");
         }
+      // ژمارە magicەکانی سێرڤەر تۆمار بکە. بەمە IsOurMagic هەر
+      // ژمارەیەک دەناسێتەوە کە ترەیدەر لە داشبۆردەوە داینابێت،
+      // نەک تەنها مەودای بنەڕەتی 990000-990999.
+      if(JsonHas(resp, "magic_1m"))      RememberMagic((long)JsonNum(resp, "magic_1m"));
+      if(JsonHas(resp, "magic_3m"))      RememberMagic((long)JsonNum(resp, "magic_3m"));
+      if(JsonHas(resp, "magic_default")) RememberMagic((long)JsonNum(resp, "magic_default"));
      }
 
    //--- جیاکردنەوەی لەیئاوتەکان: هەر تایمفرەیمێک magicـی خۆی
    long useMagic = (UseSignalMagic && sigMagic > 0) ? sigMagic : MagicNumber;
    trade.SetExpertMagicNumber(useMagic);
+   // تۆماری بکە تاوەکو IsOurMagic بیناسێتەوە، تەنانەت ئەگەر
+   // ترەیدەر ژمارەیەکی دەرەوەی مەودای بنەڕەتی دانابێت
+   RememberMagic(useMagic);
 
    string symbol = ResolveSymbol(symbolIn);
 
@@ -616,7 +657,12 @@ bool IsOurMagic(long m)
   {
    if(m == MagicNumber) return true;
    if(!UseSignalMagic)  return false;
-   return (m >= 990000 && m <= 990999);
+   // مەودای بنەڕەتی سێرڤەر
+   if(m >= 990000 && m <= 990999) return true;
+   // ژمارەی دەستکرد کە ترەیدەر لە داشبۆردەوە داینا
+   for(int i = 0; i < g_knownCount; i++)
+      if(g_knownMagics[i] == m) return true;
+   return false;
   }
 
 //--- تەنها پۆزیشنەکانی یەک لەیئاوت (بۆ جیاکردنەوەی تەواو)

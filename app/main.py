@@ -137,18 +137,26 @@ def _process_signal(signal: TVSignal, sig_id: int):
     # پشکنینی سەرەکی (client_id) لە سەرەوە کراوە. ئەمە تەنها ئەو
     # حاڵەتە دەگرێت کە ئیندیکەیتەر id ی دووبارە بنێرێت بەڵام بە
     # SL/TP ی جیاواز — ئەوسا هەردووکیان هەمان سیگناڵن.
+    #
+    # هەروەها **سەرچاوە** لە کلیلەکەدایە: BETA 1 و BETA 2.5 دوو
+    # ئیندیکەیتەری سەربەخۆن. ئەگەر هەردووکیان هەمان setup بدۆزنەوە
+    # و هەمان SL/TP بنێرن، ئەوە دوو سیگناڵی جیاوازە لە دوو سەرچاوەوە
+    # و دەبێت ببنە دوو ئۆردەر — نەک یەک.
     debounce = float(_settings.get("debounce_sec", 0) or 0)
     if not _settings.get("debounce_enabled", True):
         debounce = 0
     if debounce > 0 and signal.action in ("buy", "sell"):
+        src_tag = (signal.strategy or "") + "-"
         recent = db.query(
             """SELECT o.id, o.client_id, o.ts FROM orders o
                WHERE o.symbol=? AND o.action=? AND o.magic=?
                  AND o.price=? AND o.sl=? AND o.tp=?
+                 AND o.client_id LIKE ?
                  AND o.ts >= ?
                ORDER BY o.id DESC LIMIT 1""",
             (signal.symbol, signal.action, signal.magic,
-             signal.price, signal.sl, signal.tp, time.time() - debounce),
+             signal.price, signal.sl, signal.tp,
+             src_tag + "%", time.time() - debounce),
         )
         if recent:
             db.execute(
@@ -325,6 +333,13 @@ def next_order(token: str, wait_ms: int = 0):
             "tier2_trigger_pct": float(s.get("tier2_trigger_pct", 50.0)),
             "tier2_lock_pct": float(s.get("tier2_lock_pct", 3.0)),
             "tier2_close_pct": float(s.get("tier2_close_pct", 50.0)),
+            # ── ژمارە magicەکان ────────────────────────────────────
+            # EA پێویستی پێیانە بۆ ئەوەی پۆزیشنەکانی خۆی بناسێتەوە
+            # دوای ڕیستارت، بەتایبەتی ئەگەر ترەیدەر ژمارەیەکی
+            # دەرەوەی مەودای بنەڕەتی (990000-990999) دانابێت.
+            "magic_1m": int(s.get("magic_1m", 990001)),
+            "magic_3m": int(s.get("magic_3m", 990003)),
+            "magic_default": int(s.get("magic_default", 990000)),
         },
     }
 
