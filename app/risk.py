@@ -149,11 +149,24 @@ def check(signal, allowed_symbols: list[str]) -> tuple[bool, str]:
 
 
 def sizing(signal) -> tuple[float, float]:
-    """گەڕانەوەی (volume, risk_pct). ئەگەر volume=0 بێت EA خۆی حیسابی دەکات."""
+    """گەڕانەوەی (volume, risk_pct).
+
+    دوو مۆد:
+      • ``fixed``   — لۆتێکی جێگیر، ڕاستەوخۆ لێرەوە دەنێردرێت.
+      • ``percent`` — هەر ١٪ی باڵانس = 0.01 لۆت. باڵانس تەنها لە MT5
+        دا زانراوە، بۆیە ``volume=0`` دەنێردرێت و EA خۆی دەیژمێرێت.
+
+    ئەگەر سیگناڵەکە خۆی ``volume`` ی هەبێت، ئەو پێشەنگە.
+    """
     s = db.get_settings()
+    max_lot = float(s.get("max_lot", 1.0))
+
     if signal.volume and signal.volume > 0:
-        return min(float(signal.volume), float(s.get("max_lot", 1.0))), 0.0
-    if float(s.get("fixed_lot", 0)) > 0:
-        return min(float(s["fixed_lot"]), float(s.get("max_lot", 1.0))), 0.0
-    risk = float(signal.risk_pct if signal.risk_pct is not None else s.get("risk_pct", 0.5))
-    return 0.0, risk
+        return min(float(signal.volume), max_lot), 0.0
+
+    mode = str(s.get("lot_mode", "percent")).lower()
+    if mode == "fixed":
+        return min(float(s.get("fixed_lot", 0.01)), max_lot), 0.0
+
+    # percent — EA دەیژمێرێت لە باڵانسەوە
+    return 0.0, float(s.get("balance_pct", 1.0))

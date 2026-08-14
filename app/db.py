@@ -85,8 +85,13 @@ CREATE TABLE IF NOT EXISTS events (
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "trading_enabled": True,        # کلیلی سەرەکی (kill switch)
-    "risk_pct": 1.0,                # ڕێژەی مەترسی بۆ هەر ترەیدێک (%) — یاسای ٣
-    "fixed_lot": 0.0,               # ئەگەر > 0 بەکاردێت لەبری risk_pct
+    # ── قەبارەی لۆت: دوو مۆد ──────────────────────────────────────
+    #: "fixed"   = لۆتێکی جێگیر کە ترەیدەر خۆی دایدەنێت
+    #: "percent" = هەر ١٪ی باڵانس = 0.01 لۆت (SL هیچ ڕۆڵێکی نییە)
+    "lot_mode": "percent",
+    "fixed_lot": 0.01,              # مۆدی fixed
+    "balance_pct": 1.0,             # مۆدی percent — ١٪ی باڵانس
+    "risk_pct": 1.0,                # (کۆن) مەترسی بەپێی دووری SL
     "max_lot": 1.0,
     "max_open_positions": 2,
     "max_trades_per_day": 10,

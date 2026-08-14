@@ -22,7 +22,7 @@ input long    MagicNumber    = 990011;   // بنەڕەت — ئەگەر سیگن
 input bool    UseSignalMagic = true;     // magicـی سیگناڵ بەکاربهێنە (جیاکردنەوەی 1m/3m)
 input int     SlippagePoints = 30;
 input bool    EnableTrading  = true;                    // کلیلی ناوخۆیی
-input bool    PassthroughMode = true;                   // SL/TP وەک خۆی، بەبێ trailing
+input bool    PassthroughMode = true;                   // SL/TP سەرەتایی وەک خۆی لە سیگناڵەوە
 
 //--- قەرەبووکردنەوەی سپرێد -----------------------------------------
 input bool    SpreadComp     = true;   // سپرێد بخە سەر SL و TP
@@ -33,10 +33,37 @@ input bool    RespectStopsLevel = true; // ئەگەر SL/TP زۆر نزیک بو
 //--- مەکینەی مەترسی (یاسای ٣) --------------------------------------
 input bool    RiskOnBalance  = true;   // مەترسی لەسەر باڵانس (نەک ئیکویتی)
 
+//--- قەبارەی لۆت ---------------------------------------------------
+enum ENUM_LOT_MODE
+  {
+   LOT_FIXED   = 0,  // لۆتی جێگیر
+   LOT_PERCENT = 1,  // ڕێژەی سەدی باڵانس (١٪ = 0.01 لۆت)
+   LOT_SERVER  = 2   // ئەوەی سێرڤەر دەیڵێت
+  };
+input ENUM_LOT_MODE LotMode    = LOT_SERVER;  // مۆدی قەبارە
+input double  FixedLot        = 0.01;   // مۆدی جێگیر
+input double  BalancePercent  = 1.0;    // مۆدی ڕێژەیی: ١٪ی باڵانس = 0.01 لۆت
+input double  MaxLotCap       = 0;      // زۆرترین لۆت (0 = بێ سنوور)
+
+//--- بەڕێوەبردنی مامەڵە (یاسای ٤) ----------------------------------
+input bool    ProgressionOn   = true;   // Tier 1 + Tier 2 چالاک بێت
+input double  Tier1TriggerPct = 30.0;   // لە چەند ٪ی TP دەست پێ بکات
+input double  Tier1LockPct    = 1.0;    // SL بخرێتە چەند ٪ی TP قازانج
+input double  Tier2TriggerPct = 50.0;   // لە چەند ٪ی TP
+input double  Tier2LockPct    = 3.0;    // SL بخرێتە چەند ٪ی TP قازانج
+input double  Tier2ClosePct   = 50.0;   // چەند ٪ی لۆت دابخرێت
+
 //--- پێشوەختە ڕاگەیاندن (MQL5 پێویستی پێیەتی پێش بەکارهێنان)
 bool IsOurMagic(long m);
 bool IsSameLayout(long m, long want);
 void CloseOppositePositions(string symbol, bool wantBuy, long layoutMagic);
+bool MoveSlForward(ulong ticket, string sym, double newSl, double tp,
+                   bool isBuy, double point, string tag);
+bool IsTierDone(ulong ticket, int tier);
+void MarkTierDone(ulong ticket, int tier);
+void PruneTierMemory();
+double NormalizePrice(string symbol, double price);
+double NormalizeVolume(string symbol, double vol);
 
 CTrade         trade;
 CPositionInfo  pos;
@@ -63,6 +90,7 @@ void OnTimer()
      {
       SendAccountReport();
       lastHeartbeat = TimeCurrent();
+      PruneTierMemory();   // پاککردنەوەی تیکێتە داخراوەکان
      }
    ManageOpenPositions();
 
@@ -151,6 +179,8 @@ bool PollOrder()
    double defTpPts  = JsonNum(resp, "default_tp_points");
    long   sigMagic  = (long)JsonNum(resp, "magic");
    string sigTf     = JsonStr(resp, "tf");
+   string srvLotMode = JsonStr(resp, "lot_mode");
+   double srvBalPct  = JsonNum(resp, "balance_pct");
 
    //--- جیاکردنەوەی لەیئاوتەکان: هەر تایمفرەیمێک magicـی خۆی
    long useMagic = (UseSignalMagic && sigMagic > 0) ? sigMagic : MagicNumber;
@@ -216,15 +246,43 @@ bool PollOrder()
         }
      }
 
-   //--- قەبارەی لۆت بەپێی مەترسی (یاسای ٣: ١٪ی باڵانس)
-   //    دووری SL ی دوای قەرەبووی سپرێد بەکاردێت — واتا مەترسیی ڕاستەقینە
-   double slDist = MathAbs(entry - sl);
+   //--- قەبارەی لۆت
+   //    ئەگەر EA بە LOT_SERVER بێت، ئەوەی سێرڤەر دەیڵێت جێبەجێ دەکرێت،
+   //    بەپێچەوانەوە ڕێکخستنی خودی EA پێشەنگە.
+   double slDist  = MathAbs(entry - sl);
+   string lotNote = "";
    if(volume <= 0)
      {
-      if(riskPct > 0 && sl > 0) volume = LotByRisk(symbol, riskPct, slDist);
-      else                      volume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+      ENUM_LOT_MODE mode = LotMode;
+      double pct = BalancePercent;
+      if(mode == LOT_SERVER)
+        {
+         mode = (srvLotMode == "fixed") ? LOT_FIXED : LOT_PERCENT;
+         if(srvBalPct > 0) pct = srvBalPct;
+        }
+
+      if(mode == LOT_FIXED)
+        {
+         volume  = FixedLot;
+         lotNote = StringFormat("جێگیر=%.2f", FixedLot);
+        }
+      else
+        {
+         volume  = LotByBalancePercent(pct);
+         lotNote = StringFormat("%.1f%%ی باڵانس(%.0f$)", pct, AccountInfoDouble(ACCOUNT_BALANCE));
+        }
+
+      if(volume <= 0)
+        {
+         volume  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+         lotNote = "کەمترین";
+        }
      }
-   volume = NormalizeVolume(symbol, MathMin(volume, maxLot > 0 ? maxLot : volume));
+   else lotNote = "لە سیگناڵەوە";
+
+   double lotCap = MaxLotCap > 0 ? MaxLotCap : maxLot;
+   if(lotCap > 0 && volume > lotCap) volume = lotCap;
+   volume = NormalizeVolume(symbol, volume);
    if(volume <= 0)
      { Report(clientId, "failed", 0, 0, "invalid volume"); return true; }
 
@@ -232,9 +290,9 @@ bool PollOrder()
    if(allowRev) CloseOppositePositions(symbol, isBuy, useMagic);
 
    int dg = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-   PrintFormat("%s %s tf%s magic=%d | سپرێد=%.0fp+%.0fp | SL=%.*f TP=%.*f | دووری=%.1fp مەترسی=%.2f%% لۆت=%.2f",
+   PrintFormat("%s %s tf%s magic=%d | سپرێد=%.0fp+%.0fp | SL=%.*f TP=%.*f | دووری=%.1fp | لۆت=%.2f (%s)",
                clientId, symbol, sigTf, useMagic, spread, compPts,
-               dg, sl, dg, tp, slDist / point, riskPct, volume);
+               dg, sl, dg, tp, slDist / point, volume, lotNote);
 
    bool ok = isBuy ? trade.Buy(volume, symbol, 0.0, NormalizePrice(symbol, sl), NormalizePrice(symbol, tp), clientId)
                    : trade.Sell(volume, symbol, 0.0, NormalizePrice(symbol, sl), NormalizePrice(symbol, tp), clientId);
@@ -281,6 +339,20 @@ double NormalizeVolume(string symbol, double vol)
   }
 
 //--- قەبارە بەپێی ڕێژەی مەترسی لە ئیکویتی --------------------------
+//+------------------------------------------------------------------+
+//| قەبارە بەپێی ڕێژەی سەدی باڵانس                                   |
+//| هەر ١٪ی باڵانس = 0.01 لۆت. دووری SL هیچ ڕۆڵێکی نییە.            |
+//|   100$ balance @ 1%  → 0.01 لۆت                                  |
+//|   200$ balance @ 1%  → 0.02 لۆت                                  |
+//|   200$ balance @ 2%  → 0.04 لۆت                                  |
+//+------------------------------------------------------------------+
+double LotByBalancePercent(double pct)
+  {
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   if(bal <= 0 || pct <= 0) return 0;
+   return (bal / 100.0) * 0.01 * pct;
+  }
+
 double LotByRisk(string symbol, double riskPct, double slDistance)
   {
    if(slDistance <= 0) return 0;
@@ -299,34 +371,173 @@ double LotByRisk(string symbol, double riskPct, double slDistance)
 //+------------------------------------------------------------------+
 //| بەڕێوەبردنی پۆزیشنەکان: break-even + trailing                    |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| یاسای ٤ — بەڕێوەبردنی داینامیکی مامەڵە                           |
+//|                                                                  |
+//|  هەموو ژمارەکان ڕێژەیین لە دووری TP ەوە — گرنگ نییە ٥٠ پیپ بێت  |
+//|  یان ٢٥٠ پیپ.                                                    |
+//|                                                                  |
+//|  Tier 1 — لە ٣٠٪ی TP:  SL → +١٪ی TP قازانج                      |
+//|  Tier 2 — لە ٥٠٪ی TP:  SL → +٣٪ی TP قازانج                      |
+//|                        + داخستنی ٥٠٪ی لۆت                        |
+//|                        + بەشی ماوە بەردەوام بۆ TP ی تەواو        |
+//|                                                                  |
+//|  ئەگەر لۆت = کەمترینی بڕۆکەر بێت (0.01)، نیوە ناکرێت —          |
+//|  تەنها SL دەگۆڕدرێت و پۆزیشنەکە بەردەوام دەبێت.                 |
+//+------------------------------------------------------------------+
 void ManageOpenPositions()
   {
-   // لە مۆدی passthrough دا دەستکاری SL ناکەین — ئیندیکەیتەرەکە خۆی
-   // SL/TP دادەنێت بەپێی جۆری کاندڵەکان (Risk:Reward = 1:8).
-   if(PassthroughMode)
-      return;
+   if(!ProgressionOn) return;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(!pos.SelectByIndex(i)) continue;
       if(!IsOurMagic(pos.Magic())) continue;
-      string sym = pos.Symbol();
+
+      string sym   = pos.Symbol();
       double point = SymbolInfoDouble(sym, SYMBOL_POINT);
       double openP = pos.PriceOpen();
       double cur   = pos.PriceCurrent();
       double sl    = pos.StopLoss();
+      double tp    = pos.TakeProfit();
       bool   isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
-      double profitPts = isBuy ? (cur - openP) / point : (openP - cur) / point;
+      ulong  tk    = pos.Ticket();
 
-      // trailing سادە: 30% ی دووری، تەنها بەرەو پێشەوە
-      if(profitPts > 200)
+      // بەبێ TP ڕێژەکان بێواتان
+      if(tp <= 0) continue;
+
+      double tpDist = MathAbs(tp - openP);
+      if(tpDist <= 0) continue;
+
+      // چەند لە ڕێگاکە بڕیوە؟
+      double moved = isBuy ? (cur - openP) : (openP - cur);
+      double pctDone = moved / tpDist * 100.0;
+      if(pctDone <= 0) continue;
+
+      //--- Tier 2 (سەرەتا دەپشکنرێت — پێشەنگە بەسەر Tier 1)
+      if(pctDone >= Tier2TriggerPct && !IsTierDone(tk, 2))
         {
-         double newSl = isBuy ? cur - 100 * point : cur + 100 * point;
-         newSl = NormalizePrice(sym, newSl);
-         bool better = isBuy ? (sl == 0 || newSl > sl + point) : (sl == 0 || newSl < sl - point);
-         if(better) trade.PositionModify(pos.Ticket(), newSl, pos.TakeProfit());
+         double lockDist = tpDist * Tier2LockPct / 100.0;
+         double newSl = isBuy ? openP + lockDist : openP - lockDist;
+         MoveSlForward(tk, sym, newSl, tp, isBuy, point, "Tier2");
+
+         // داخستنی ڕێژەیەک لە لۆتەکە
+         double vol  = pos.Volume();
+         double step = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
+         double vmin = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+         if(step <= 0) step = 0.01;
+
+         double want = vol * Tier2ClosePct / 100.0;
+         double part = MathFloor(want / step) * step;
+         part = NormalizeDouble(part, 2);
+
+         // دەبێت هەم بەشی داخراو هەم بەشی ماوە لە کەمترین کەمتر نەبن
+         if(part >= vmin && (vol - part) >= vmin)
+           {
+            if(trade.PositionClosePartial(tk, part))
+               PrintFormat("Tier2 #%d %s | %.1f%%ی TP | داخرا %.2f لە %.2f | ماوە %.2f | SL→+%.1f%%",
+                           tk, sym, pctDone, part, vol, vol - part, Tier2LockPct);
+            else
+               PrintFormat("Tier2 #%d داخستنی بەشەکی سەرکەوتوو نەبوو: %d %s",
+                           tk, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+           }
+         else
+           {
+            PrintFormat("Tier2 #%d %s | %.1f%%ی TP | لۆت=%.2f بچووکە بۆ داخستنی نیوە — بەردەوام بۆ TP | SL→+%.1f%%",
+                        tk, sym, pctDone, vol, Tier2LockPct);
+           }
+
+         MarkTierDone(tk, 2);
+         continue;
+        }
+
+      //--- Tier 1
+      if(pctDone >= Tier1TriggerPct && !IsTierDone(tk, 1))
+        {
+         double lockDist = tpDist * Tier1LockPct / 100.0;
+         double newSl = isBuy ? openP + lockDist : openP - lockDist;
+         if(MoveSlForward(tk, sym, newSl, tp, isBuy, point, "Tier1"))
+            PrintFormat("Tier1 #%d %s | %.1f%%ی TP | SL→+%.1f%% (%.*f)",
+                        tk, sym, pctDone, Tier1LockPct,
+                        (int)SymbolInfoInteger(sym, SYMBOL_DIGITS), newSl);
+         MarkTierDone(tk, 1);
         }
      }
+  }
+
+//+------------------------------------------------------------------+
+//| جوڵاندنی SL — تەنها بەرەو پێشەوە، هەرگیز بەرەو دواوە             |
+//+------------------------------------------------------------------+
+bool MoveSlForward(ulong ticket, string sym, double newSl, double tp,
+                   bool isBuy, double point, string tag)
+  {
+   newSl = NormalizePrice(sym, newSl);
+
+   // ڕێزگرتن لە کەمترین دووری بڕۆکەر
+   double minDist = (double)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL) * point;
+   double cur = isBuy ? SymbolInfoDouble(sym, SYMBOL_BID) : SymbolInfoDouble(sym, SYMBOL_ASK);
+   if(minDist > 0)
+     {
+      if(isBuy  && cur - newSl < minDist) newSl = NormalizePrice(sym, cur - minDist);
+      if(!isBuy && newSl - cur < minDist) newSl = NormalizePrice(sym, cur + minDist);
+     }
+
+   if(!pos.SelectByTicket(ticket)) return false;
+   double oldSl = pos.StopLoss();
+
+   // تەنها ئەگەر باشتر بێت
+   bool better = isBuy ? (oldSl == 0 || newSl > oldSl + point / 2)
+                       : (oldSl == 0 || newSl < oldSl - point / 2);
+   if(!better) return false;
+
+   if(trade.PositionModify(ticket, newSl, tp)) return true;
+
+   PrintFormat("%s #%d گۆڕینی SL سەرکەوتوو نەبوو: %d %s",
+               tag, ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| تۆمارکردنی ئەوەی کام قۆناغ بۆ کام تیکێت جێبەجێ کراوە             |
+//| (بۆ ئەوەی هەر قۆناغێک تەنها یەک جار کار بکات)                    |
+//+------------------------------------------------------------------+
+ulong g_tierTickets[];
+int   g_tierLevels[];
+
+bool IsTierDone(ulong ticket, int tier)
+  {
+   for(int i = 0; i < ArraySize(g_tierTickets); i++)
+      if(g_tierTickets[i] == ticket && g_tierLevels[i] >= tier) return true;
+   return false;
+  }
+
+void MarkTierDone(ulong ticket, int tier)
+  {
+   for(int i = 0; i < ArraySize(g_tierTickets); i++)
+      if(g_tierTickets[i] == ticket)
+        {
+         if(tier > g_tierLevels[i]) g_tierLevels[i] = tier;
+         return;
+        }
+   int n = ArraySize(g_tierTickets);
+   ArrayResize(g_tierTickets, n + 1);
+   ArrayResize(g_tierLevels,  n + 1);
+   g_tierTickets[n] = ticket;
+   g_tierLevels[n]  = tier;
+  }
+
+//--- سڕینەوەی تیکێتە داخراوەکان لە لیستەکە (نەهێشتنی گەورەبوونی بێکۆتایی)
+void PruneTierMemory()
+  {
+   for(int i = ArraySize(g_tierTickets) - 1; i >= 0; i--)
+      if(!PositionSelectByTicket(g_tierTickets[i]))
+        {
+         int last = ArraySize(g_tierTickets) - 1;
+         g_tierTickets[i] = g_tierTickets[last];
+         g_tierLevels[i]  = g_tierLevels[last];
+         ArrayResize(g_tierTickets, last);
+         ArrayResize(g_tierLevels,  last);
+        }
   }
 
 //+------------------------------------------------------------------+

@@ -258,6 +258,9 @@ def next_order(token: str):
             # جیاکردنەوەی لەیئاوتەکان — EA بەم ژمارەیە ئۆردەرەکان جیا دەکاتەوە
             "magic": o["magic"] or 0,
             "tf": o["tf"] or "",
+            # قەبارەی لۆت: "fixed" یان "percent" (١٪ی باڵانس = 0.01 لۆت)
+            "lot_mode": s.get("lot_mode", "percent"),
+            "balance_pct": s.get("balance_pct", 1.0),
             "max_lot": s["max_lot"],
             "max_spread_points": 0 if passthrough else s["max_spread_points"],
             "allow_reverse": False if passthrough else s["allow_reverse"],
