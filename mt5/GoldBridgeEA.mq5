@@ -59,6 +59,14 @@ input double  Tier2LockPct    = 3.0;    // SL بخرێتە چەند ٪ی TP قا
 input double  Tier2ClosePct   = 50.0;   // چەند ٪ی لۆت دابخرێت
 
 //--- پێشوەختە ڕاگەیاندن (MQL5 پێویستی پێیەتی پێش بەکارهێنان)
+bool PollOrder();
+void ManageOpenPositions();
+void SendAccountReport();
+void CloseAll();
+void ClosePositionsOn(string symbol);
+void Report(string clientId, string status, long ticket, double fillPrice, string err);
+string ResolveSymbol(string want);
+double LotByBalancePercent(double pct);
 bool IsOurMagic(long m);
 bool IsSameLayout(long m, long want);
 void CloseOppositePositions(string symbol, bool wantBuy, long layoutMagic);
