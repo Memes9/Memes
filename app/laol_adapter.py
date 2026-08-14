@@ -45,20 +45,23 @@ TF_MAGIC: dict[str, int] = {
 MAGIC_DEFAULT = 990000  # تایمفرەیمی نەناسراو
 
 
-def magic_for_tf(tf: str) -> int:
+def magic_for_tf(tf: str, settings: dict | None = None) -> int:
     """ژمارەی جادوویی بۆ تایمفرەیمێک.
 
-    تایمفرەیمە ناسراوەکان ژمارەی جێگیریان هەیە. بۆ هەر تایمفرەیمێکی تر
-    ژمارەیەکی جیاواز دەردەهێنرێت (990000 + خولەکەکان) تاکو هەرگیز
-    لەگەڵ ١m و ٣m تێکەڵ نەبێت.
+    ژمارەکانی ١m و ٣m لە ڕێکخستنەکانەوە دێن (``magic_1m`` / ``magic_3m``)
+    بۆیە ترەیدەر دەتوانێت بیانگۆڕێت. بۆ هەر تایمفرەیمێکی تر ژمارەیەکی
+    جیاواز دەردەهێنرێت (990000 + خولەکەکان) تاکو هەرگیز تێکەڵ نەبن.
     """
+    s = settings or {}
     tf = str(tf or "").strip()
-    if tf in TF_MAGIC:
-        return TF_MAGIC[tf]
+    if tf == "1":
+        return int(s.get("magic_1m", TF_MAGIC["1"]))
+    if tf == "3":
+        return int(s.get("magic_3m", TF_MAGIC["3"]))
     m = re.match(r"^(\d+)$", tf)
     if m:
         return MAGIC_BASE + int(m.group(1))
-    return MAGIC_DEFAULT
+    return int(s.get("magic_default", MAGIC_DEFAULT))
 
 #: سیگناڵە ناسراوەکان -> (tier, action)
 SIGNAL_MAP: dict[str, tuple[str, str]] = {
@@ -195,7 +198,7 @@ def parse(raw: str | dict, source: str, secret: str, settings: dict) -> tuple[TV
         info["note"] = "passthrough ناچالاکە"
 
     tf = str(data.get("tf", ""))
-    magic = magic_for_tf(tf)
+    magic = magic_for_tf(tf, settings)
     info["magic"] = magic
 
     signal = TVSignal(

@@ -125,6 +125,8 @@ def _process_signal(signal: TVSignal, sig_id: int):
     # (بۆ نموونە لەبەر دووبارە هەوڵدانەوە)، تەنها یەکەمیان جێبەجێ دەبێت.
     # پشکنین: هەمان لەیئاوت + هەمان ئاراستە + هەمان سیمبول لە ماوەیەکی کورتدا.
     debounce = float(_settings.get("debounce_sec", 0) or 0)
+    if not _settings.get("debounce_enabled", True):
+        debounce = 0
     if debounce > 0 and signal.action in ("buy", "sell"):
         recent = db.query(
             """SELECT id, client_id, ts FROM orders
@@ -270,6 +272,18 @@ def next_order(token: str):
             "trailing_start_points": s["trailing_start_points"],
             "trailing_step_points": s["trailing_step_points"],
             "break_even_points": 0 if passthrough else s["break_even_points"],
+            # ── قەرەبووکردنەوەی سپرێد ──────────────────────────────
+            "spread_comp_enabled": bool(s.get("spread_comp_enabled", True)),
+            "spread_extra_points": float(s.get("spread_extra_points", 0)),
+            "spread_cap_points": float(s.get("spread_cap_points", 0)),
+            "respect_stops_level": bool(s.get("respect_stops_level", True)),
+            # ── یاسای ٤: Tier 1 / Tier 2 ───────────────────────────
+            "progression_enabled": bool(s.get("progression_enabled", True)),
+            "tier1_trigger_pct": float(s.get("tier1_trigger_pct", 30.0)),
+            "tier1_lock_pct": float(s.get("tier1_lock_pct", 1.0)),
+            "tier2_trigger_pct": float(s.get("tier2_trigger_pct", 50.0)),
+            "tier2_lock_pct": float(s.get("tier2_lock_pct", 3.0)),
+            "tier2_close_pct": float(s.get("tier2_close_pct", 50.0)),
         },
     }
 

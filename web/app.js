@@ -1,10 +1,21 @@
 const NUM_KEYS = ["risk_pct","fixed_lot","max_lot","max_open_positions","max_trades_per_day",
   "max_daily_loss_pct","max_total_drawdown_pct","max_spread_points","signal_max_age_sec",
-  "default_sl_points","default_tp_points","break_even_points","trailing_start_points","trailing_step_points"];
+  "default_sl_points","default_tp_points","break_even_points","trailing_start_points","trailing_step_points",
+  // قەبارەی لۆت
+  "balance_pct",
+  // پاراستنی SL + debounce
+  "max_sl_pips","pip_points","debounce_sec",
+  // قەرەبووی سپرێد
+  "spread_extra_points","spread_cap_points",
+  // Tier 1 / Tier 2
+  "tier1_trigger_pct","tier1_lock_pct","tier2_trigger_pct","tier2_lock_pct","tier2_close_pct",
+  // ژمارەی جادوویی
+  "magic_1m","magic_3m","magic_default"];
 const BOOL_KEYS = ["trading_enabled","trailing_enabled","allow_reverse","session_filter_enabled","confluence_enabled",
-  "laol_passthrough","laol_trade_info_signals"];
+  "laol_passthrough","laol_trade_info_signals",
+  "max_sl_enabled","debounce_enabled","spread_comp_enabled","respect_stops_level","progression_enabled"];
 const TXT_KEYS = ["session_start_utc","session_end_utc"];
-const SEL_KEYS = ["confluence_mode","confluence_sl_policy","confluence_tp_policy","laol_tp_mode"];
+const SEL_KEYS = ["confluence_mode","confluence_sl_policy","confluence_tp_policy","laol_tp_mode","lot_mode"];
 NUM_KEYS.push("confluence_window_sec","confluence_min_score");
 
 let dirty = false;
@@ -53,6 +64,8 @@ async function refresh() {
   document.querySelectorAll("#confluence_enabled,#confluence_mode,#confluence_window_sec,#confluence_min_score")
     .forEach(e => { e.disabled = pt; });
 
+  renderPreviews(s.settings, a.balance);
+
   renderVotes(s.confluence);
 
   fill("posTable", pos, p => `<td>${p.ticket ?? "—"}</td><td>${p.symbol ?? ""}</td>
@@ -75,6 +88,39 @@ async function refresh() {
 
   document.getElementById("log").innerHTML = s.events
     .map(e => `<div>[${t(e.ts)}] ${e.level.toUpperCase()} — ${e.message}</div>`).join("");
+}
+
+// پێشبینینی زیندوو: ژمارەکان چی دەکەن لە ڕاستیدا
+function renderPreviews(st, balance) {
+  const lotNote = document.getElementById("lotNote");
+  if (lotNote) {
+    if (st.lot_mode === "fixed") {
+      lotNote.innerHTML = `هەموو مامەڵەکان بە <b>${fmt(st.fixed_lot, 2)}</b> لۆت دەکرێنەوە.`;
+    } else {
+      const pct = Number(st.balance_pct) || 0;
+      const bal = Number(balance) || 0;
+      const lot = bal > 0 ? (bal / 100) * 0.01 * pct : 0;
+      const ex = [100, 500, 1000, 10000]
+        .map(b => `${b}$ → ${((b / 100) * 0.01 * pct).toFixed(2)}`).join("  •  ");
+      lotNote.innerHTML = bal > 0
+        ? `باڵانسی ئێستا <b>${fmt(bal)}$</b> بە ${pct}% → <b>${lot.toFixed(2)}</b> لۆت<br><span class="dim">${ex}</span>`
+        : `${pct}% لە باڵانس:  ${ex}`;
+    }
+  }
+
+  const tierNote = document.getElementById("tierNote");
+  if (tierNote) {
+    if (!st.progression_enabled) {
+      tierNote.innerHTML = '<span style="color:#e08a24">⚠ ناچالاکە — SL دوای کردنەوە ناجوڵێت.</span>';
+    } else {
+      const rows = [50, 100, 250].map(tp =>
+        `TP ${tp}p → Tier1 لە ${(tp * st.tier1_trigger_pct / 100).toFixed(0)}p (SL +${(tp * st.tier1_lock_pct / 100).toFixed(1)}p)` +
+        ` • Tier2 لە ${(tp * st.tier2_trigger_pct / 100).toFixed(0)}p (SL +${(tp * st.tier2_lock_pct / 100).toFixed(1)}p, ` +
+        `${st.tier2_close_pct}% دادەخرێت)`
+      ).join("<br>");
+      tierNote.innerHTML = `<span class="dim">${rows}</span>`;
+    }
+  }
 }
 
 function renderVotes(cf) {

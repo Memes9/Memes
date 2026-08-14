@@ -75,6 +75,8 @@ def check_max_sl(signal, s: dict | None = None) -> tuple[bool, str]:
     ڕەت دەکرێتەوە پێش ئەوەی بگاتە MT5.
     """
     s = s if s is not None else db.get_settings()
+    if not s.get("max_sl_enabled", True):
+        return True, "ok"
     limit = float(s.get("max_sl_pips", 0) or 0)
     if limit <= 0:
         return True, "ok"

@@ -24,6 +24,11 @@ input int     SlippagePoints = 30;
 input bool    EnableTrading  = true;                    // کلیلی ناوخۆیی
 input bool    PassthroughMode = true;                   // SL/TP سەرەتایی وەک خۆی لە سیگناڵەوە
 
+//--- سەرچاوەی ڕێکخستنەکان ------------------------------------------
+// true  = ژمارەکان لە داشبۆردەوە دێن (لە یەک شوێنەوە بەڕێوە دەبرێن)
+// false = ژمارەکانی خوارەوەی ئەم EA ـە بەکاردێن
+input bool    UseServerSettings = true;  // ڕێکخستن لە داشبۆردەوە وەربگرە
+
 //--- قەرەبووکردنەوەی سپرێد -----------------------------------------
 input bool    SpreadComp     = true;   // سپرێد بخە سەر SL و TP
 input double  SpreadExtraPts = 0;      // پۆینتی زیادە لەسەر سپرێد (بەتاڵ = تەنها سپرێد)
@@ -65,6 +70,28 @@ void PruneTierMemory();
 double NormalizePrice(string symbol, double price);
 double NormalizeVolume(string symbol, double vol);
 
+//--- ڕێکخستنە کارپێکراوەکان (لە سێرڤەر یان لە inputەکانەوە) ---------
+bool   g_spreadComp;
+double g_spreadExtra, g_spreadCap;
+bool   g_respectStops;
+bool   g_progressionOn;
+double g_t1Trigger, g_t1Lock, g_t2Trigger, g_t2Lock, g_t2Close;
+
+//--- دانانی بەهای بنەڕەت لە inputەکانەوە
+void ResetEffectiveSettings()
+  {
+   g_spreadComp    = SpreadComp;
+   g_spreadExtra   = SpreadExtraPts;
+   g_spreadCap     = SpreadCapPts;
+   g_respectStops  = RespectStopsLevel;
+   g_progressionOn = ProgressionOn;
+   g_t1Trigger     = Tier1TriggerPct;
+   g_t1Lock        = Tier1LockPct;
+   g_t2Trigger     = Tier2TriggerPct;
+   g_t2Lock        = Tier2LockPct;
+   g_t2Close       = Tier2ClosePct;
+  }
+
 CTrade         trade;
 CPositionInfo  pos;
 datetime       lastHeartbeat = 0;
@@ -73,6 +100,7 @@ int            lastPollTick  = 0;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   ResetEffectiveSettings();   // بەهای بنەڕەت پێش یەکەم پەیوەندی
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetTypeFillingBySymbol(_Symbol);
@@ -156,6 +184,7 @@ string JsonStr(string json, string key)
 
 double JsonNum(string json, string key) { return StringToDouble(JsonStr(json, key)); }
 bool   JsonBool(string json, string key) { string v = JsonStr(json, key); return (v == "true" || v == "1"); }
+bool   JsonHas(string json, string key)  { return (StringFind(json, "\"" + key + "\"") >= 0); }
 
 //+------------------------------------------------------------------+
 //| وەرگرتنی فەرمانی داهاتوو                                          |
@@ -181,6 +210,28 @@ bool PollOrder()
    string sigTf     = JsonStr(resp, "tf");
    string srvLotMode = JsonStr(resp, "lot_mode");
    double srvBalPct  = JsonNum(resp, "balance_pct");
+
+   //--- ڕێکخستنەکان لە داشبۆردەوە (ئەگەر ڕێگەپێدراو بێت)
+   ResetEffectiveSettings();
+   if(UseServerSettings)
+     {
+      if(JsonHas(resp, "spread_comp_enabled"))
+        {
+         g_spreadComp   = JsonBool(resp, "spread_comp_enabled");
+         g_spreadExtra  = JsonNum(resp, "spread_extra_points");
+         g_spreadCap    = JsonNum(resp, "spread_cap_points");
+         g_respectStops = JsonBool(resp, "respect_stops_level");
+        }
+      if(JsonHas(resp, "progression_enabled"))
+        {
+         g_progressionOn = JsonBool(resp, "progression_enabled");
+         g_t1Trigger     = JsonNum(resp, "tier1_trigger_pct");
+         g_t1Lock        = JsonNum(resp, "tier1_lock_pct");
+         g_t2Trigger     = JsonNum(resp, "tier2_trigger_pct");
+         g_t2Lock        = JsonNum(resp, "tier2_lock_pct");
+         g_t2Close       = JsonNum(resp, "tier2_close_pct");
+        }
+     }
 
    //--- جیاکردنەوەی لەیئاوتەکان: هەر تایمفرەیمێک magicـی خۆی
    long useMagic = (UseSignalMagic && sigMagic > 0) ? sigMagic : MagicNumber;
@@ -217,10 +268,10 @@ bool PollOrder()
 
    //--- قەرەبووی سپرێد: هەمان بڕ دەخرێتە سەر SL و TP، ڕێژەی R:R نەگۆڕ دەمێنێتەوە
    double compPts = 0;
-   if(SpreadComp)
+   if(g_spreadComp)
      {
-      compPts = spread + SpreadExtraPts;
-      if(SpreadCapPts > 0 && compPts > SpreadCapPts) compPts = SpreadCapPts;
+      compPts = spread + g_spreadExtra;
+      if(g_spreadCap > 0 && compPts > g_spreadCap) compPts = g_spreadCap;
       if(compPts < 0) compPts = 0;
       double comp = compPts * point;
       if(sl > 0) sl = isBuy ? sl - comp : sl + comp;
@@ -228,7 +279,7 @@ bool PollOrder()
      }
 
    //--- کەمترین دووری ڕێپێدراوی بڕۆکەر (پاراستنی تەکنیکی، نەک فیلتەری ستراتیژی)
-   if(RespectStopsLevel)
+   if(g_respectStops)
      {
       double minDist = (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
       if(minDist > 0)
@@ -387,7 +438,7 @@ double LotByRisk(string symbol, double riskPct, double slDistance)
 //+------------------------------------------------------------------+
 void ManageOpenPositions()
   {
-   if(!ProgressionOn) return;
+   if(!g_progressionOn) return;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -415,9 +466,9 @@ void ManageOpenPositions()
       if(pctDone <= 0) continue;
 
       //--- Tier 2 (سەرەتا دەپشکنرێت — پێشەنگە بەسەر Tier 1)
-      if(pctDone >= Tier2TriggerPct && !IsTierDone(tk, 2))
+      if(pctDone >= g_t2Trigger && !IsTierDone(tk, 2))
         {
-         double lockDist = tpDist * Tier2LockPct / 100.0;
+         double lockDist = tpDist * g_t2Lock / 100.0;
          double newSl = isBuy ? openP + lockDist : openP - lockDist;
          MoveSlForward(tk, sym, newSl, tp, isBuy, point, "Tier2");
 
@@ -427,7 +478,7 @@ void ManageOpenPositions()
          double vmin = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
          if(step <= 0) step = 0.01;
 
-         double want = vol * Tier2ClosePct / 100.0;
+         double want = vol * g_t2Close / 100.0;
          double part = MathFloor(want / step) * step;
          part = NormalizeDouble(part, 2);
 
@@ -436,7 +487,7 @@ void ManageOpenPositions()
            {
             if(trade.PositionClosePartial(tk, part))
                PrintFormat("Tier2 #%d %s | %.1f%%ی TP | داخرا %.2f لە %.2f | ماوە %.2f | SL→+%.1f%%",
-                           tk, sym, pctDone, part, vol, vol - part, Tier2LockPct);
+                           tk, sym, pctDone, part, vol, vol - part, g_t2Lock);
             else
                PrintFormat("Tier2 #%d داخستنی بەشەکی سەرکەوتوو نەبوو: %d %s",
                            tk, trade.ResultRetcode(), trade.ResultRetcodeDescription());
@@ -444,7 +495,7 @@ void ManageOpenPositions()
          else
            {
             PrintFormat("Tier2 #%d %s | %.1f%%ی TP | لۆت=%.2f بچووکە بۆ داخستنی نیوە — بەردەوام بۆ TP | SL→+%.1f%%",
-                        tk, sym, pctDone, vol, Tier2LockPct);
+                        tk, sym, pctDone, vol, g_t2Lock);
            }
 
          MarkTierDone(tk, 2);
@@ -452,13 +503,13 @@ void ManageOpenPositions()
         }
 
       //--- Tier 1
-      if(pctDone >= Tier1TriggerPct && !IsTierDone(tk, 1))
+      if(pctDone >= g_t1Trigger && !IsTierDone(tk, 1))
         {
-         double lockDist = tpDist * Tier1LockPct / 100.0;
+         double lockDist = tpDist * g_t1Lock / 100.0;
          double newSl = isBuy ? openP + lockDist : openP - lockDist;
          if(MoveSlForward(tk, sym, newSl, tp, isBuy, point, "Tier1"))
             PrintFormat("Tier1 #%d %s | %.1f%%ی TP | SL→+%.1f%% (%.*f)",
-                        tk, sym, pctDone, Tier1LockPct,
+                        tk, sym, pctDone, g_t1Lock,
                         (int)SymbolInfoInteger(sym, SYMBOL_DIGITS), newSl);
          MarkTierDone(tk, 1);
         }
